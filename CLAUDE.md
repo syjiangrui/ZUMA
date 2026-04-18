@@ -242,8 +242,8 @@ After experiments with full-sphere UV projection (which caused center stretching
 **Phase 2** (completed) established the full gameplay loop: single-round lifecycle, win/lose conditions, combo tracking, cross-seam matching, and split/merge mechanics. The system is rule-stable.
 
 **Phase 3** (in progress) is visual and audio polish:
-- **Completed**: Material unification (stone body, rolling band, temple glyphs)
-- **In Progress**: Particle effects, UI skin, sound effects, performance tuning
+- **Completed**: Material unification (stone body, rolling band, temple glyphs), green-stone frog redesign, debris particle system, victory/defeat full-screen effects (gold particles + glow for win; screen shake + red vignette for lose), performance caching pass
+- **In Progress**: UI skin refinement, sound effects
 - **Not Yet**: Multi-level, special ball types, difficulty curves, save/load
 
 When working on Phase 3 tasks:
@@ -308,11 +308,11 @@ When modifying rendering code, always check whether a gradient or path can be mo
 
 ## Performance Considerations
 
-- **Per-frame gradient creates**: ~8 (down from ~190 before caching). Only conditional panels (match feedback, round card) and non-standard-radius preview balls still create live gradients.
+- **Per-frame gradient creates**: ~8 (down from ~190 before caching). Only conditional panels (match feedback, round card), round-end effects, and non-standard-radius preview balls still create live gradients.
 - **Ball chain updates**: O(n) per frame (n = ball count, ~30 typical)
 - **Collision detection**: O(n) linear scan; adequate for current scale
 - **Path lookup**: O(log n) binary search on `pathPoints[]`
-- **Particle effects** (Phase 3): Monitor frame rate on low-end phones; implement simple disable/downgrade flags if needed
+- **Particle system**: Debris on elimination (6/ball) + victory celebration particles. Hard cap at 120 total. Simple position+velocity+gravity integration per frame; negligible cost. Tuning constants: `PARTICLE_COUNT_PER_BALL`, `PARTICLE_LIFETIME`, `PARTICLE_MAX_TOTAL`.
 
 ## Key Parameters to Tune (all in constants section)
 

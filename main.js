@@ -127,6 +127,8 @@ class ZumaGame {
     this.nextBallId = 1;
     this.pendingMatchChecks = [];
     this.particles = [];
+    this.roundEndTimer = 0;
+    this.screenShake = 0;
     this.currentPaletteIndex = 0;
     this.nextPaletteIndex = 0;
     this.shooter = {
@@ -485,6 +487,10 @@ class ZumaGame {
     if (nextState !== "playing") {
       this.pointer.active = false;
       this.projectile = null;
+      this.roundEndTimer = 0;
+      if (nextState === "win") {
+        this.spawnVictoryParticles();
+      }
     }
   }
 
@@ -510,6 +516,8 @@ class ZumaGame {
     this.mergeSettle = null;
     this.chainIntro = null;
     this.particles = [];
+    this.roundEndTimer = 0;
+    this.screenShake = 0;
     this.score = 0;
     this.currentPaletteIndex = this.getRandomPaletteIndex();
     this.nextPaletteIndex = this.getRandomPaletteIndex();
@@ -849,6 +857,18 @@ class ZumaGame {
   update(dt) {
     this.updateHudState(dt);
     this.updateParticles(dt);
+    // Round-end animations tick even after gameplay stops
+    if (this.gameState !== "playing") {
+      this.roundEndTimer += dt;
+      // Lose: screen shake decays over time
+      if (this.screenShake > 0) {
+        this.screenShake = Math.max(0, this.screenShake - dt * 3);
+      }
+      // Win: spawn celebration particles over the first ~1.5 seconds
+      if (this.gameState === "win" && this.roundEndTimer < 1.5) {
+        this.spawnCelebrationTick();
+      }
+    }
     if (!this.isRoundPlaying()) {
       return;
     }
@@ -909,6 +929,7 @@ class ZumaGame {
     const tailS = this.chain[this.chain.length - 1].s;
     if (tailS > this.totalPathLength + EXIT_GAP) {
       this.setGameState("lose");
+      this.screenShake = 1; // trigger screen shake on defeat
     }
   }
 
@@ -1366,6 +1387,78 @@ class ZumaGame {
     ctx.globalAlpha = 1;
   }
 
+  // --- Round-end effects -------------------------------------------------
+
+  // Initial burst of golden particles from the center when winning.
+  spawnVictoryParticles() {
+    const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT * 0.4;
+    const goldColors = ["#f5d862", "#ffe08a", "#c8a828", "#fff4c8", "#e8c44a"];
+    for (let i = 0; i < 40; i++) {
+      const angle = Math.random() * TAU;
+      const speed = 80 + Math.random() * 200;
+      this.particles.push({
+        x: cx + (Math.random() - 0.5) * 80,
+        y: cy + (Math.random() - 0.5) * 60,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 100,
+        age: 0,
+        lifetime: 0.8 + Math.random() * 0.8,
+        size: 2 + Math.random() * 4,
+        color: goldColors[i % goldColors.length],
+      });
+    }
+  }
+
+  // Continuous trickle of rising gold sparkles during victory screen.
+  spawnCelebrationTick() {
+    const goldColors = ["#f5d862", "#ffe08a", "#fff4c8"];
+    for (let i = 0; i < 2; i++) {
+      this.particles.push({
+        x: Math.random() * GAME_WIDTH,
+        y: GAME_HEIGHT + 10,
+        vx: (Math.random() - 0.5) * 40,
+        vy: -(120 + Math.random() * 160),
+        age: 0,
+        lifetime: 1.2 + Math.random() * 1.0,
+        size: 1.5 + Math.random() * 3,
+        color: goldColors[(Math.random() * 3) | 0],
+      });
+    }
+  }
+
+  // Overlay effects drawn on top of the dimmed background in drawRoundStateCard.
+  drawRoundEndEffect(ctx) {
+    if (this.gameState === "win") {
+      // Golden radial glow behind the card
+      const t = Math.min(1, this.roundEndTimer / 0.6);
+      const alpha = t * 0.15;
+      const glow = ctx.createRadialGradient(
+        GAME_WIDTH / 2, GAME_HEIGHT * 0.2, 20,
+        GAME_WIDTH / 2, GAME_HEIGHT * 0.3, GAME_WIDTH * 0.7,
+      );
+      glow.addColorStop(0, `rgba(245, 216, 98, ${alpha})`);
+      glow.addColorStop(1, "rgba(245, 216, 98, 0)");
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    } else if (this.gameState === "lose") {
+      // Red vignette flash that fades over ~0.8s
+      const t = Math.min(1, this.roundEndTimer / 0.8);
+      const alpha = (1 - t * t) * 0.35;
+      if (alpha > 0.01) {
+        const vig = ctx.createRadialGradient(
+          GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_HEIGHT * 0.15,
+          GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_HEIGHT * 0.6,
+        );
+        vig.addColorStop(0, "rgba(0, 0, 0, 0)");
+        vig.addColorStop(0.6, `rgba(100, 20, 15, ${alpha * 0.5})`);
+        vig.addColorStop(1, `rgba(140, 30, 20, ${alpha})`);
+        ctx.fillStyle = vig;
+        ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+      }
+    }
+  }
+
   updateProjectile(dt) {
     if (!this.projectile) {
       return;
@@ -1633,6 +1726,15 @@ class ZumaGame {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
+    // Screen shake on defeat — offset the entire canvas briefly
+    if (this.screenShake > 0) {
+      const intensity = this.screenShake * 14;
+      const ox = (Math.random() - 0.5) * intensity;
+      const oy = (Math.random() - 0.5) * intensity;
+      ctx.save();
+      ctx.translate(ox, oy);
+    }
+
     // Static scene (background + track + goal) is pre-rendered once
     ctx.drawImage(this.staticSceneCache, 0, 0);
     this.drawChain(ctx);
@@ -1642,6 +1744,15 @@ class ZumaGame {
     this.drawShooter(ctx);
     this.drawOverlay(ctx);
     this.drawMatchFeedback(ctx);
+
+    if (this.screenShake > 0) {
+      ctx.restore();
+    }
+
+    // Round-end effects and card are drawn outside the shake transform
+    if (this.gameState !== "playing") {
+      this.drawRoundEndEffect(ctx);
+    }
     this.drawRoundStateCard(ctx);
   }
 

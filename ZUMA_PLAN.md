@@ -784,12 +784,13 @@ Phase 3 的核心不是继续加玩法规则，而是把当前已经成立的一
 This addendum records the current visual-direction decisions without rewriting the older planning sections.
 
 Current status:
-- `Phase 3 / G` is in progress.
+- `Phase 3 / G` is complete.
+- `Phase 3 / H` is in progress.
 - Path geometry is intentionally frozen for now: off-screen entry plus Archimedean spiral remains the baseline.
-- The goal is no longer "add any texture"; it is "make the whole board read as one temple-material system".
 
-What has already changed in code:
-- Shooter replaced with a classic Zuma stone-frog: squat body + open mouth holding current ball + stone-dome eyes with reptilian slit pupils + belly socket for next-ball preview. Entire frog rotates with aim angle; ground shadow stays flat. Procedural Canvas 2D, no external assets.
+What has already changed in code (G):
+- Shooter replaced with a classic Zuma stone-frog: green-stone Mayan idol with moss-toned body, wider head/mouth, three head-crest ridges, Mayan zigzag decoration, warm amber round-pupil eyes (friendly, not menacing). Entire frog rotates with aim angle; ground shadow stays flat. 0.78× scale for better proportion. Procedural Canvas 2D, no external assets.
+- Frog belly socket shows current ball color (same as mouth); HUD "下一个" shows the actual next ball.
 - HUD panels, restart button and end cards are moving toward a stone altar / bronze trim look.
 - The track has been simplified toward a carved groove instead of a heavy framed pipe.
 - Balls now use a stone-body render plus a moving symbolic belt instead of the old flat rotating badge.
@@ -800,16 +801,19 @@ Important rendering decision:
 - Reason: it produced center stretching and a "sticker on the front" read.
 - The current implementation intentionally uses a rolling equatorial band because it is less uncanny and more readable on a phone-sized ball.
 
-Current goals inside work package G:
-1. Keep refining stone-ball material so it feels like carved/polished relic spheres rather than glass marbles.
-2. Unify track, HUD, shooter and ball material language.
-3. Avoid large structural rendering experiments while the current direction is converging.
+What has already changed in code (H):
+- Debris particle system added: each eliminated ball spawns 6 colored fragments (palette base/bright/accent) that fly outward with gravity, fade and shrink over ~0.5s. Capped at 120 particles total.
+- Impact aura already existed from Phase 2 (short glow pulse on collision/merge).
+
+What is still needed in H:
+- Victory full-screen celebration effect (gold particles / flash)
+- Defeat full-screen feedback (screen shake / darken)
+- Merge/seam closure flash (deferred — low priority, revisit after H core is done)
 
 What is still not the focus yet:
-- Particle-heavy polish (`H`)
 - Full HUD skin pass (`I`)
 - Audio (`J`)
 - Performance tuning (`K`) — note: a major rendering-cache pass has already been done (offscreen canvases for background/track/balls/frog/HUD, Path2D for track, gradient count reduced from ~190/frame to ~8/frame). Further K work would focus on particle budgets and low-end device degradation.
 
-Next expected move after G is stable:
-- Start `H` for hit / match / merge feedback effects.
+Next expected move:
+- Finish H: victory/defeat full-screen feedback, then proceed to I or J.
