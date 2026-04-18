@@ -4,7 +4,7 @@
 
 这份文档描述当前祖马原型的真实实现结构，而不是理想化设计稿。目标是解决两个问题：
 
-1. 当 `main.js` 已经接近 2000 行时，后续开发者需要快速理解“系统是怎么跑起来的”。
+1. 当 `main.js` 已经接近 2800 行时，后续开发者需要快速理解”系统是怎么跑起来的”。
 2. 后续做 Phase 2/3/4 的功能时，需要知道哪些是稳定规则层，哪些只是表现层和手感层。
 
 当前实现特点：
@@ -17,8 +17,8 @@
 
 这份文档对应当前项目中的以下文件：
 
-- [main.js](C:/Users/reikjiang/Desktop/game/main.js)
-- [ZUMA_PLAN.md](C:/Users/reikjiang/Desktop/game/ZUMA_PLAN.md)
+- [main.js](main.js)
+- [ZUMA_PLAN.md](ZUMA_PLAN.md)
 
 ## 2. 当前代码组织方式
 
@@ -592,16 +592,14 @@ frontPullTarget = min(maxPull, closedDistance * ratio)
 当前绘制顺序：
 
 1. 清空画布
-2. 背景
-3. 轨道
-4. 终点
-5. 球链
-6. 发射球
-7. 瞄准辅助
-8. 发射器
-9. 顶部 HUD
-10. 结束卡片
-11. 匹配反馈
+2. 静态场景缓存（背景 + 轨道 + 终点，一次性预渲染到离屏 canvas，`drawImage` 直接贴）
+3. 球链
+4. 发射球
+5. 瞄准辅助
+6. 石蛙发射器（预缓存两层离屏 canvas + 实时画嘴中球和腹部球）
+7. 顶部 HUD（面板底图预缓存，文字实时绘制）
+8. 匹配反馈
+9. 结束卡片
 
 这个顺序保证：
 
@@ -611,21 +609,19 @@ frontPullTarget = min(maxPull, closedDistance * ratio)
 
 ### 13.2 球体绘制
 
-`drawBall()` 会基于：
+`drawBall()` 使用分层缓存策略：
 
-- 预生成纹理
-- 当前旋转角
-- 当前 impact 强度
+- 基底层（body gradient）：预渲染到 `ballBaseCache[paletteIndex]` 离屏 canvas，运行时 `drawImage`
+- 滚动腰带（rolling band）：必须实时绘制（依赖 rotation），但腰带边缘阴影预缓存到 `bandShadeCache`
+- 叠加层（matte shade + worn bloom）：预渲染到共享 `ballOverCache`，运行时 `drawImage`
 
-来绘制球体。
-
-球的“滚动感”来自：
+球的”滚动感”来自：
 
 ```text
 rotation = s / radius
 ```
 
-这不是严格物理模拟，但在 2D 里足够形成可信的滚动视觉。
+标准半径（`BALL_RADIUS = 14`）的球使用全缓存路径（0 gradient/球），非标准半径的预览球走 fallback 路径（3 gradient/球）。
 
 ### 13.3 纹理生成
 
@@ -786,23 +782,56 @@ rotation = s / radius
 
 这也是后续继续扩展这个项目时最不能轻易破坏的基础。
 
-## 18. 2026-04-18 Ball Material And Rolling Texture Update
+## 19. 2026-04-18 发射器与性能缓存更新
+
+### 石蛙发射器
+
+发射器已替换为经典 Zuma 风格的石蛙造型（玛雅/阿兹特克石雕）。
+
+造型构成：
+- 蹲踞蛙身（贝塞尔曲线轮廓 + 石质渐变 + 雕刻纹横带 + 青铜底座环 + 两侧前肢）
+- 蛙头/嘴（上颚覆盖球上部制造"含住"效果，下颚在球后方）
+- 石质隆起眼球（金色虹膜环 + 竖缝爬虫瞳孔）
+- 腹部凹槽（下一球预览）
+
+整只蛙随瞄准角度旋转，地面投影不旋转。蛙体预渲染到两层离屏 canvas（behind-ball / front-of-ball），运行时只实时绘制嘴中球和腹部球。
+
+### 渲染缓存架构
+
+为解决每帧约 190 个 gradient 创建 + 1848 次 lineTo 导致的严重卡顿，实施了全面的离屏 canvas 缓存策略：
+
+| 缓存 | 内容 | 何时创建 |
+|------|------|----------|
+| `staticSceneCache` | 背景 + 轨道 + 终点 | `createStaticSceneCache()` |
+| `cachedTrackPath` (Path2D) | 轨道折线 (~616 点) | `createPath()` |
+| `ballBaseCache[palette]` | 每种颜色的球体基底 gradient | `createBallRenderCache()` |
+| `ballOverCache` | 共享的 matte shade + worn bloom 叠加 | `createBallRenderCache()` |
+| `bandShadeCache` | 腰带边缘阴影 | `createBallRenderCache()` |
+| `frogCacheBehind` | 蛙身 + 下颚 + 口腔 + 腹部凹槽 | `createFrogCache()` |
+| `frogCacheFront` | 上颚 + 鼻孔 + 青铜描边 + 眼睛 | `createFrogCache()` |
+| `hudPanelCache` | HUD 固定面板底图 | `drawOverlay()` 首次调用时 |
+
+优化结果：gradient 创建从 ~190/帧 降到 ~8/帧，lineTo 从 1848/帧降到 0。
+
+新增渲染代码时，应优先检查 gradient 或路径是否可以纳入上述缓存体系，避免回退到每帧重建。
+
+## 20. 2026-04-18 Ball Material And Rolling Texture Update
 
 This section supplements the earlier rendering notes with the current Phase 3 implementation.
 
 ### Current Ball Rendering Pipeline
-The ball is now drawn in four explicit layers:
-1. Broad stone-body gradient.
-2. Rolling equatorial symbol band.
-3. Matte re-shading to push the band back into the sphere volume.
-4. Small warm wear highlight instead of a glass-like specular spot.
+The ball is now drawn using a cached-layer approach:
+1. Cached stone-body base layer (`ballBaseCache[palette]`) — `drawImage`.
+2. Live rolling equatorial symbol band (rotation-dependent, with cached band shading).
+3. Cached overlay layer (`ballOverCache`) — matte re-shading + warm wear highlight.
 
-This pipeline lives primarily in:
-- `drawBall()`
-- `drawRollingBandTexture()`
-- `createBallPatternCanvas()`
-- `drawTempleGlyph()`
-- `makeHorizontalTextureSeamless()`
+The pipeline functions are:
+- `createBallRenderCache()` — pre-renders base/overlay/band-shade canvases at startup
+- `drawBall()` — runtime compositor using `drawImage` + live belt drawing
+- `drawRollingBandTexture()` — belt tiles + cached shade overlay
+- `createBallPatternCanvas()` — generates belt source texture per palette
+- `drawTempleGlyph()` — draws per-palette glyph into belt
+- `makeHorizontalTextureSeamless()` — blends belt edges for seamless tiling
 
 ### Why The Renderer No Longer Uses Pseudo Full-Sphere Projection
 An earlier experiment tried to project a full texture map over the visible sphere. In practice it caused three recurring issues:
