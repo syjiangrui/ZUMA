@@ -92,6 +92,10 @@ class ZumaGame {
     // This lets us keep one stable "chain conveyor" value and layer temporary
     // insertion / gap-closing animation on top.
     this.chainHeadS = 0;
+    // gameState is the round-level gate for all gameplay simulation. Phase 2
+    // starts by introducing this even before win/lose logic is fully wired, so
+    // later work can stop updates cleanly instead of scattering booleans.
+    this.gameState = "playing";
     // splitState 表示球链被中段消除后，当前临时分成前后两段。
     this.splitState = null;
     this.projectile = null;
@@ -109,13 +113,20 @@ class ZumaGame {
       x: GAME_WIDTH * 0.5 + 90,
       y: GAME_HEIGHT * 0.58 - 120,
     };
+    this.uiPressAction = null;
+    // Score/combo are not derived from chain length deltas. They are driven by
+    // explicit match events, each attached to the shot action that caused them.
+    this.score = 0;
+    this.nextActionId = 1;
+    this.actionContexts = new Map();
+    this.matchFeedback = null;
+    this.recentCombo = null;
+    this.bestCombo = 0;
     this.lastTime = 0;
 
     this.createPath();
     this.createTextures();
-    this.createChain();
-    this.currentPaletteIndex = this.getRandomPaletteIndex();
-    this.nextPaletteIndex = this.getRandomPaletteIndex();
+    this.resetRound();
     this.bindEvents();
     this.resize();
     requestAnimationFrame((time) => this.loop(time));
@@ -199,8 +210,8 @@ class ZumaGame {
     );
   }
 
-  // Reset the prototype chain to a packed line of balls. This is also used as
-  // the "restart" path once the tail reaches the goal in the current prototype.
+  // Reset the chain itself to a packed line of balls. Round-scoped state such
+  // as projectile, palettes and gameState is handled by resetRound().
   createChain() {
     this.chain = Array.from({ length: START_CHAIN_COUNT }, (_, index) =>
       this.createChainBall(index % 4),
@@ -210,6 +221,45 @@ class ZumaGame {
     this.splitState = null;
     this.pendingMatchChecks = [];
     this.syncChainPositions();
+  }
+
+  // All round-end side effects funnel through this setter so update/input code
+  // only needs to ask whether the round is still in the "playing" state.
+  setGameState(nextState) {
+    this.gameState = nextState;
+    if (nextState !== "playing") {
+      this.pointer.active = false;
+      this.projectile = null;
+    }
+  }
+
+  isRoundPlaying() {
+    return this.gameState === "playing";
+  }
+
+  // A round reset must clear every transient gameplay structure that can leak
+  // across attempts: projectile, seam state, delayed match checks, palettes and
+  // id allocation. This is the single restart path used by the constructor, the
+  // prototype tail escape, and future restart UI.
+  resetRound() {
+    this.setGameState("playing");
+    this.projectile = null;
+    this.splitState = null;
+    this.pendingMatchChecks = [];
+    this.nextBallId = 1;
+    this.nextActionId = 1;
+    this.actionContexts.clear();
+    this.matchFeedback = null;
+    this.recentCombo = null;
+    this.bestCombo = 0;
+    this.score = 0;
+    this.currentPaletteIndex = this.getRandomPaletteIndex();
+    this.nextPaletteIndex = this.getRandomPaletteIndex();
+    this.shooter.angle = -Math.PI / 2;
+    this.pointer.active = false;
+    this.pointer.x = this.shooter.x + 90;
+    this.pointer.y = this.shooter.y - 120;
+    this.createChain();
   }
 
   createChainBall(paletteIndex) {
@@ -229,6 +279,10 @@ class ZumaGame {
       // impact is purely visual: a short pulse used on collisions, merges and
       // seam closures so state transitions are easier to read.
       impact: 0,
+      // Keep a fallback link from later delayed checks back to the originating
+      // shot action so combo scoring does not silently disappear if an explicit
+      // action id is missing further down the chain reaction.
+      lastActionId: null,
     };
   }
 
@@ -242,12 +296,28 @@ class ZumaGame {
         return;
       }
 
-      this.pointer.active = true;
       this.updatePointer(event);
+      const uiAction = this.getUiActionAt(this.pointer.x, this.pointer.y);
+      if (uiAction) {
+        this.uiPressAction = uiAction;
+        this.canvas.setPointerCapture?.(event.pointerId);
+        return;
+      }
+
+      if (!this.isRoundPlaying()) {
+        return;
+      }
+
+      this.pointer.active = true;
       this.canvas.setPointerCapture?.(event.pointerId);
     });
 
     this.canvas.addEventListener("pointermove", (event) => {
+      if (this.uiPressAction) {
+        this.updatePointer(event);
+        return;
+      }
+
       if (!this.pointer.active && event.pointerType === "mouse") {
         this.updatePointer(event);
         return;
@@ -264,18 +334,31 @@ class ZumaGame {
       }
 
       this.updatePointer(event);
+      if (this.uiPressAction) {
+        const action = this.uiPressAction;
+        this.uiPressAction = null;
+        this.canvas.releasePointerCapture?.(event.pointerId);
+        if (this.getUiActionAt(this.pointer.x, this.pointer.y) === action) {
+          this.triggerUiAction(action);
+        }
+        return;
+      }
+
       this.pointer.active = false;
       this.canvas.releasePointerCapture?.(event.pointerId);
-      this.fireProjectile();
+      if (this.isRoundPlaying()) {
+        this.fireProjectile();
+      }
     });
 
     this.canvas.addEventListener("pointercancel", (event) => {
+      this.uiPressAction = null;
       this.pointer.active = false;
       this.canvas.releasePointerCapture?.(event.pointerId);
     });
 
     this.canvas.addEventListener("pointerleave", () => {
-      if (!this.pointer.active) {
+      if (!this.pointer.active && !this.uiPressAction) {
         this.pointer.x = this.shooter.x + 90;
         this.pointer.y = this.shooter.y - 120;
       }
@@ -284,7 +367,14 @@ class ZumaGame {
     window.addEventListener("keydown", (event) => {
       if (event.code === "Space") {
         event.preventDefault();
-        this.fireProjectile();
+        if (this.isRoundPlaying()) {
+          this.fireProjectile();
+        }
+      }
+
+      if (event.code === "KeyR") {
+        event.preventDefault();
+        this.resetRound();
       }
     });
   }
@@ -305,6 +395,189 @@ class ZumaGame {
     this.pointer.y = (event.clientY - rect.top) * scaleY;
   }
 
+  isPointInsideRect(x, y, rect) {
+    return (
+      !!rect &&
+      x >= rect.x &&
+      x <= rect.x + rect.w &&
+      y >= rect.y &&
+      y <= rect.y + rect.h
+    );
+  }
+
+  getHudRestartButtonRect() {
+    return { x: GAME_WIDTH - 108, y: 18, w: 84, h: 42 };
+  }
+
+  getHudNextPreviewRect() {
+    return { x: GAME_WIDTH - 180, y: 16, w: 56, h: 56 };
+  }
+
+  // HUD and modal buttons share the same source rects for drawing and hit
+  // testing, which keeps mobile touch targets aligned with their visuals.
+  getEndCardRestartButtonRect() {
+    if (this.gameState === "playing") {
+      return null;
+    }
+
+    return {
+      x: GAME_WIDTH * 0.5 - 84,
+      y: GAME_HEIGHT * 0.12 + 114,
+      w: 168,
+      h: 34,
+    };
+  }
+
+  // Button hit testing must run before gameplay input so tapping UI on phone
+  // does not accidentally start an aiming / firing gesture on the canvas.
+  getUiActionAt(x, y) {
+    const endCardRestart = this.getEndCardRestartButtonRect();
+    if (this.isPointInsideRect(x, y, endCardRestart)) {
+      return "restart";
+    }
+
+    if (this.isPointInsideRect(x, y, this.getHudRestartButtonRect())) {
+      return "restart";
+    }
+
+    return null;
+  }
+
+  // Centralize HUD actions so future buttons can reuse one dispatch path.
+  triggerUiAction(action) {
+    if (action === "restart") {
+      this.resetRound();
+    }
+  }
+
+  // One fired shot owns an action context. Later seam closures and follow-up
+  // removals point back to it so scoring/combo logic can treat them as a
+  // single player action instead of isolated events.
+  createActionContext(source = "shot") {
+    const actionId = this.nextActionId++;
+    this.actionContexts.set(actionId, {
+      id: actionId,
+      source,
+      combo: 0,
+      totalRemoved: 0,
+      totalScore: 0,
+    });
+    this.trimActionContexts();
+    return actionId;
+  }
+
+  getActionContext(actionId) {
+    if (actionId === null || actionId === undefined) {
+      return null;
+    }
+
+    let context = this.actionContexts.get(actionId);
+    if (!context) {
+      context = {
+        id: actionId,
+        source: "system",
+        combo: 0,
+        totalRemoved: 0,
+        totalScore: 0,
+      };
+      this.actionContexts.set(actionId, context);
+    }
+    return context;
+  }
+
+  // Delayed seam closures mean action contexts must outlive the shot itself,
+  // but the table should still stay bounded once nothing references old ids.
+  trimActionContexts() {
+    if (this.actionContexts.size <= 64) {
+      return;
+    }
+
+    const protectedIds = new Set();
+    if (this.projectile?.actionId) {
+      protectedIds.add(this.projectile.actionId);
+    }
+    if (this.splitState?.actionId) {
+      protectedIds.add(this.splitState.actionId);
+    }
+    for (const check of this.pendingMatchChecks) {
+      if (check.actionId) {
+        protectedIds.add(check.actionId);
+      }
+    }
+
+    for (const actionId of this.actionContexts.keys()) {
+      if (this.actionContexts.size <= 64) {
+        break;
+      }
+      if (!protectedIds.has(actionId)) {
+        this.actionContexts.delete(actionId);
+      }
+    }
+  }
+
+  recordMatchEvent({ actionId, removedCount, trigger }) {
+    const context = this.getActionContext(actionId);
+    if (!context) {
+      return;
+    }
+
+    // One shot can produce multiple removal waves. combo therefore belongs to
+    // the action context, not to a single queueMatchCheck invocation.
+    context.combo += 1;
+    context.totalRemoved += removedCount;
+
+    const baseScore = removedCount * 100;
+    const sizeBonus = Math.max(0, removedCount - 3) * 40;
+    const comboBonus = Math.max(0, context.combo - 1) * 120;
+    const triggerBonus = trigger === "seam" ? 90 : 0;
+    const awardedScore = baseScore + sizeBonus + comboBonus + triggerBonus;
+
+    context.totalScore += awardedScore;
+    this.score += awardedScore;
+    this.bestCombo = Math.max(this.bestCombo, context.combo);
+
+    const tags = [];
+    if (context.combo > 1) {
+      tags.push(`连击 x${context.combo}`);
+      this.recentCombo = {
+        combo: context.combo,
+        timer: 2.6,
+      };
+    }
+    if (trigger === "seam") {
+      tags.push("接缝连锁");
+    }
+    if (removedCount > 3) {
+      tags.push(`消除 ${removedCount}`);
+    }
+
+    this.matchFeedback = {
+      scoreDelta: awardedScore,
+      combo: context.combo,
+      removedCount,
+      label: tags.join(" · "),
+      timer: 1.2,
+    };
+  }
+
+  // HUD feedback keeps its own timers so score/combo presentation can linger
+  // for readability without affecting any gameplay state machine.
+  updateHudState(dt) {
+    if (this.matchFeedback) {
+      this.matchFeedback.timer -= dt;
+      if (this.matchFeedback.timer <= 0) {
+        this.matchFeedback = null;
+      }
+    }
+
+    if (this.recentCombo) {
+      this.recentCombo.timer -= dt;
+      if (this.recentCombo.timer <= 0) {
+        this.recentCombo = null;
+      }
+    }
+  }
+
   loop(time) {
     const dt = Math.min(0.033, (time - this.lastTime) / 1000 || 0.016);
     this.lastTime = time;
@@ -316,6 +589,11 @@ class ZumaGame {
   }
 
   update(dt) {
+    this.updateHudState(dt);
+    if (!this.isRoundPlaying()) {
+      return;
+    }
+
     // Order matters:
     // 1. Aim updates the shooter direction.
     // 2. Chain state advances and may consume delayed match checks.
@@ -323,7 +601,11 @@ class ZumaGame {
     //    chain layout for this frame.
     this.updateAim(dt);
     this.updateChain(dt);
+    if (!this.isRoundPlaying()) {
+      return;
+    }
     this.updateProjectile(dt);
+    this.updateRoundOutcome();
   }
 
   // Smooth aim toward the current pointer. With the shooter in the middle of
@@ -360,7 +642,24 @@ class ZumaGame {
 
     const tailS = this.chain[this.chain.length - 1].s;
     if (tailS > this.totalPathLength + EXIT_GAP) {
-      this.createChain();
+      this.setGameState("lose");
+    }
+  }
+
+  // Win/loss evaluation runs after both chain and projectile updates so a
+  // frame cannot simultaneously consume a match, move a projectile, and then
+  // misreport the round result from stale intermediate state.
+  updateRoundOutcome() {
+    if (!this.isRoundPlaying()) {
+      return;
+    }
+
+    if (
+      this.chain.length === 0 &&
+      !this.projectile &&
+      this.pendingMatchChecks.length === 0
+    ) {
+      this.setGameState("win");
     }
   }
 
@@ -415,34 +714,94 @@ class ZumaGame {
       return;
     }
 
-    const dueBallIds = [];
+    const dueChecks = [];
 
     // 插入和重新并链后延迟一小段时间再做三消判定，避免动画还没成立就瞬间消除。
     this.pendingMatchChecks = this.pendingMatchChecks.filter((check) => {
       check.delay -= dt;
       if (check.delay <= 0) {
-        dueBallIds.push(check.ballId);
+        dueChecks.push(check);
         return false;
       }
 
       return true;
     });
 
-    for (const ballId of dueBallIds) {
-      const index = this.chain.findIndex((ball) => ball.id === ballId);
+    for (const check of dueChecks) {
+      const index = this.chain.findIndex((ball) => ball.id === check.ballId);
       if (index >= 0) {
         // The ball may have shifted to a new index while waiting, so delayed
         // checks always resolve by id instead of by the original array index.
-        this.resolveMatchesFrom(index);
+        this.resolveMatchesFrom(index, check.actionId, check.trigger);
       }
     }
   }
 
   // Queue a future "start matching from this ball" request. We use this after
   // insertion and after seam closure so visuals have a moment to communicate
-  // what just happened before a group vanishes.
-  queueMatchCheck(ballId, delay = INSERT_MATCH_DELAY) {
-    this.pendingMatchChecks.push({ ballId, delay });
+  // what just happened before a group vanishes. actionId keeps later chain
+  // reactions attached to the original shot for scoring/combo purposes.
+  queueMatchCheck(
+    ballId,
+    delay = INSERT_MATCH_DELAY,
+    actionId = null,
+    trigger = "insert",
+  ) {
+    const existing = this.pendingMatchChecks.find(
+      (check) =>
+        check.ballId === ballId &&
+        check.actionId === actionId &&
+        check.trigger === trigger,
+    );
+    if (existing) {
+      existing.delay = Math.min(existing.delay, delay);
+      return;
+    }
+
+    this.pendingMatchChecks.push({ ballId, delay, actionId, trigger });
+  }
+
+  setBallAction(index, actionId) {
+    if (
+      actionId === null ||
+      actionId === undefined ||
+      index < 0 ||
+      index >= this.chain.length
+    ) {
+      return;
+    }
+
+    this.chain[index].lastActionId = actionId;
+  }
+
+  // A closure-triggered re-check must consider both sides of the seam. If we
+  // only re-check the left ball, we miss cases where the new removable run
+  // starts on the right side after closure.
+  queueAdjacentMatchChecks(
+    leftIndex,
+    rightIndex,
+    actionId,
+    delay = INSERT_MATCH_DELAY,
+    trigger = "chain",
+  ) {
+    this.setBallAction(leftIndex, actionId);
+    this.setBallAction(rightIndex, actionId);
+
+    const queuedIds = new Set();
+    const candidates = [leftIndex, rightIndex];
+    for (const index of candidates) {
+      if (index < 0 || index >= this.chain.length) {
+        continue;
+      }
+
+      const ballId = this.chain[index].id;
+      if (queuedIds.has(ballId)) {
+        continue;
+      }
+
+      queuedIds.add(ballId);
+      this.queueMatchCheck(ballId, delay, actionId, trigger);
+    }
   }
 
   // There is only ever one gameplay gap in the prototype: the break created
@@ -479,10 +838,11 @@ class ZumaGame {
     }
 
     const seamIndex = this.splitState.index - 1;
+    const seamActionId = this.splitState.actionId;
     this.absorbSplitState();
     this.addImpact(seamIndex, 0.78);
     this.addImpact(seamIndex + 1, 0.78);
-    this.queueMatchCheck(this.chain[seamIndex].id, 0.03);
+    this.queueAdjacentMatchChecks(seamIndex, seamIndex + 1, seamActionId, 0.03, "seam");
   }
 
   absorbSplitState() {
@@ -541,10 +901,11 @@ class ZumaGame {
   }
 
   fireProjectile() {
-    if (this.projectile) {
+    if (!this.isRoundPlaying() || this.projectile) {
       return;
     }
 
+    const actionId = this.createActionContext("shot");
     const angle = this.shooter.angle;
     const startX = this.shooter.x + Math.cos(angle) * MUZZLE_OFFSET;
     const startY = this.shooter.y + Math.sin(angle) * MUZZLE_OFFSET;
@@ -558,6 +919,7 @@ class ZumaGame {
       vy: Math.sin(angle) * PROJECTILE_SPEED,
       radius: BALL_RADIUS,
       paletteIndex: this.currentPaletteIndex,
+      actionId,
       rotation: 0,
       spin: 7.2,
     };
@@ -649,6 +1011,9 @@ class ZumaGame {
     insertedBall.offset = insertionOffset;
     insertedBall.offsetMode = "insert";
     insertedBall.impact = 1;
+    // Once the projectile becomes part of the chain, later delayed checks need
+    // to preserve its scoring/combo ownership across seam closures.
+    insertedBall.lastActionId = this.projectile.actionId ?? null;
 
     if (this.splitState && safeIndex < this.splitState.index) {
       // Inserting before an existing seam shifts the seam one slot to the right.
@@ -661,17 +1026,20 @@ class ZumaGame {
 
     this.addImpact(safeIndex - 1, 0.72);
     this.addImpact(safeIndex + 1, 0.72);
-    this.queueMatchCheck(insertedBall.id);
+    this.queueMatchCheck(insertedBall.id, INSERT_MATCH_DELAY, this.projectile.actionId, "insert");
     this.syncChainPositions();
   }
 
   // Expand a same-color run from a given seed index. This function is also
   // responsible for deciding whether a removal creates a split segment or
   // simply shortens an already contiguous chain.
-  resolveMatchesFrom(index) {
+  resolveMatchesFrom(index, actionId = null, trigger = "insert") {
     if (index < 0 || index >= this.chain.length) {
       return;
     }
+
+    const resolvedActionId =
+      actionId ?? this.chain[index].lastActionId ?? this.createActionContext("chain");
 
     // If a split already exists, array indices to the right of the removal may
     // shift and the seam index needs to be corrected after the splice.
@@ -702,6 +1070,7 @@ class ZumaGame {
     }
 
     const removedCount = end - start + 1;
+    this.recordMatchEvent({ actionId: resolvedActionId, removedCount, trigger });
     this.chain.splice(start, removedCount);
 
     // Every ball behind the removed group needs temporary negative offset so it
@@ -709,6 +1078,7 @@ class ZumaGame {
     for (let index = start; index < this.chain.length; index += 1) {
       this.chain[index].offset -= removedCount * BALL_SPACING;
       this.chain[index].offsetMode = "close";
+      this.chain[index].lastActionId = resolvedActionId;
     }
 
     if (this.chain.length === 0) {
@@ -736,6 +1106,7 @@ class ZumaGame {
       this.splitState = {
         index: start,
         frontOffset: 0,
+        actionId: resolvedActionId,
       };
       // Once a fresh split is created, cross-gap matching is invalid until the
       // rear segment physically reconnects, so we stop here.
@@ -746,7 +1117,13 @@ class ZumaGame {
       seamIndex < this.chain.length - 1 &&
       !this.hasGapBetween(seamIndex, seamIndex + 1)
     ) {
-      this.queueMatchCheck(this.chain[seamIndex].id, INSERT_MATCH_DELAY * 1.15);
+      this.queueAdjacentMatchChecks(
+        seamIndex,
+        seamIndex + 1,
+        resolvedActionId,
+        INSERT_MATCH_DELAY * 1.15,
+        "chain",
+      );
     }
   }
 
@@ -762,6 +1139,8 @@ class ZumaGame {
     this.drawAimGuide(ctx);
     this.drawShooter(ctx);
     this.drawOverlay(ctx);
+    this.drawMatchFeedback(ctx);
+    this.drawRoundStateCard(ctx);
   }
 
   drawBackground(ctx) {
@@ -994,18 +1373,249 @@ class ZumaGame {
     ctx.restore();
   }
 
+  // The top overlay is now a real HUD layer: state, score/combo, next ball and
+  // touch-friendly restart all live here instead of temporary prototype text.
   drawOverlay(ctx) {
     ctx.fillStyle = "rgba(4, 8, 9, 0.18)";
-    ctx.fillRect(0, 0, GAME_WIDTH, 92);
+    ctx.fillRect(0, 0, GAME_WIDTH, 108);
 
     ctx.fillStyle = "#f4e5bd";
     ctx.font = "600 18px Trebuchet MS";
-    ctx.fillText("中央发射口原型：拖动瞄准，松开鼠标发射", 24, 38);
+    ctx.fillText("中央发射口原型", 24, 34);
 
     ctx.fillStyle = "rgba(244, 229, 189, 0.74)";
     ctx.font = "14px Trebuchet MS";
-    ctx.fillText("轨道现在会环绕发射口，接近经典祖马的空间关系", 24, 60);
-    ctx.fillText(`当前球链数量: ${this.chain.length}`, 24, 81);
+    ctx.fillText("拖动瞄准，松开发射", 24, 54);
+    ctx.fillText(`状态: ${this.getGameStateLabel()}  |  链长: ${this.chain.length}`, 24, 76);
+    ctx.fillText(`分数: ${this.score}  |  ${this.getComboHudText()}`, 24, 96);
+    this.drawHudNextPreview(ctx);
+    this.drawRestartButton(
+      ctx,
+      this.getHudRestartButtonRect(),
+      "重开",
+      this.uiPressAction === "restart" &&
+        this.isPointInsideRect(this.pointer.x, this.pointer.y, this.getHudRestartButtonRect()),
+    );
+  }
+
+  getGameStateLabel() {
+    if (this.gameState === "win") {
+      return "胜利";
+    }
+
+    if (this.gameState === "lose") {
+      return "失败";
+    }
+
+    return "进行中";
+  }
+
+  // Keep combo feedback readable for longer than the floating +score bubble so
+  // players can still confirm a combo happened after the popup fades.
+  getComboHudText() {
+    if (this.recentCombo) {
+      return `连击: x${this.recentCombo.combo}`;
+    }
+
+    if (this.bestCombo > 1) {
+      return `最高连击: x${this.bestCombo}`;
+    }
+
+    return "连击: -";
+  }
+
+  // The round-end card doubles as the phone-friendly restart surface until a
+  // fuller post-game menu exists.
+  drawRoundStateCard(ctx) {
+    if (this.gameState === "playing") {
+      return;
+    }
+
+    ctx.save();
+    ctx.fillStyle = "rgba(4, 8, 10, 0.42)";
+    ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+    const panelWidth = 252;
+    const panelHeight = 146;
+    const panelX = (GAME_WIDTH - panelWidth) / 2;
+    const panelY = GAME_HEIGHT * 0.12;
+
+    const panel = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelHeight);
+    panel.addColorStop(0, "rgba(14, 26, 30, 0.94)");
+    panel.addColorStop(1, "rgba(8, 17, 20, 0.94)");
+    ctx.fillStyle = panel;
+    this.fillRoundedRect(ctx, panelX, panelY, panelWidth, panelHeight, 24);
+
+    ctx.strokeStyle =
+      this.gameState === "win"
+        ? "rgba(244, 220, 137, 0.72)"
+        : "rgba(220, 133, 115, 0.72)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(panelX + 24, panelY);
+    ctx.lineTo(panelX + panelWidth - 24, panelY);
+    ctx.quadraticCurveTo(panelX + panelWidth, panelY, panelX + panelWidth, panelY + 24);
+    ctx.lineTo(panelX + panelWidth, panelY + panelHeight - 24);
+    ctx.quadraticCurveTo(
+      panelX + panelWidth,
+      panelY + panelHeight,
+      panelX + panelWidth - 24,
+      panelY + panelHeight,
+    );
+    ctx.lineTo(panelX + 24, panelY + panelHeight);
+    ctx.quadraticCurveTo(panelX, panelY + panelHeight, panelX, panelY + panelHeight - 24);
+    ctx.lineTo(panelX, panelY + 24);
+    ctx.quadraticCurveTo(panelX, panelY, panelX + 24, panelY);
+    ctx.stroke();
+
+    ctx.fillStyle = "#f4e5bd";
+    ctx.textAlign = "center";
+    ctx.font = "600 28px Trebuchet MS";
+    ctx.fillText(this.gameState === "win" ? "胜利" : "失败", GAME_WIDTH / 2, panelY + 52);
+
+    ctx.fillStyle = "rgba(244, 229, 189, 0.78)";
+    ctx.font = "15px Trebuchet MS";
+    ctx.fillText(
+      this.gameState === "win"
+        ? `当前球链已清空，本局得分 ${this.score}`
+        : `球链抵达终点，本局得分 ${this.score}`,
+      GAME_WIDTH / 2,
+      panelY + 88,
+    );
+    ctx.fillText(
+      this.bestCombo > 1 ? `最高连击 x${this.bestCombo}` : "本局未触发连击",
+      GAME_WIDTH / 2,
+      panelY + 108,
+    );
+    const restartRect = this.getEndCardRestartButtonRect();
+    this.drawRestartButton(
+      ctx,
+      restartRect,
+      "重新开始",
+      this.uiPressAction === "restart" &&
+        this.isPointInsideRect(this.pointer.x, this.pointer.y, restartRect),
+    );
+    ctx.textAlign = "start";
+    ctx.restore();
+  }
+
+  // Floating score feedback stays brief, while the persistent HUD keeps the
+  // actual score and combo summary visible for longer inspection.
+  drawMatchFeedback(ctx) {
+    if (!this.matchFeedback) {
+      return;
+    }
+
+    const fadeWindow = 0.25;
+    const alpha =
+      this.matchFeedback.timer > fadeWindow
+        ? 1
+        : Math.max(0, this.matchFeedback.timer / fadeWindow);
+    const rise = (1 - Math.min(1, this.matchFeedback.timer / 1.2)) * 18;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.textAlign = "center";
+
+    ctx.fillStyle = "rgba(8, 17, 19, 0.46)";
+    this.fillRoundedRect(ctx, GAME_WIDTH * 0.5 - 92, 118 - rise, 184, 56, 18);
+
+    ctx.fillStyle = "#ffe9a9";
+    ctx.font = "600 22px Trebuchet MS";
+    ctx.fillText(`+${this.matchFeedback.scoreDelta}`, GAME_WIDTH * 0.5, 141 - rise);
+
+    ctx.fillStyle = "rgba(244, 229, 189, 0.88)";
+    ctx.font = "13px Trebuchet MS";
+    const detail =
+      this.matchFeedback.label || `消除 ${this.matchFeedback.removedCount} 颗`;
+    ctx.fillText(detail, GAME_WIDTH * 0.5, 161 - rise);
+
+    ctx.textAlign = "start";
+    ctx.restore();
+  }
+
+  drawHudNextPreview(ctx) {
+    const rect = this.getHudNextPreviewRect();
+
+    ctx.save();
+    ctx.fillStyle = "rgba(10, 20, 23, 0.72)";
+    this.fillRoundedRect(ctx, rect.x, rect.y, rect.w, rect.h, 18);
+    ctx.strokeStyle = "rgba(244, 229, 189, 0.18)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(rect.x + 18, rect.y);
+    ctx.lineTo(rect.x + rect.w - 18, rect.y);
+    ctx.quadraticCurveTo(rect.x + rect.w, rect.y, rect.x + rect.w, rect.y + 18);
+    ctx.lineTo(rect.x + rect.w, rect.y + rect.h - 18);
+    ctx.quadraticCurveTo(
+      rect.x + rect.w,
+      rect.y + rect.h,
+      rect.x + rect.w - 18,
+      rect.y + rect.h,
+    );
+    ctx.lineTo(rect.x + 18, rect.y + rect.h);
+    ctx.quadraticCurveTo(rect.x, rect.y + rect.h, rect.x, rect.y + rect.h - 18);
+    ctx.lineTo(rect.x, rect.y + 18);
+    ctx.quadraticCurveTo(rect.x, rect.y, rect.x + 18, rect.y);
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(244, 229, 189, 0.72)";
+    ctx.font = "11px Trebuchet MS";
+    ctx.textAlign = "center";
+    ctx.fillText("下一个", rect.x + rect.w / 2, rect.y + rect.h - 8);
+    this.drawBall(
+      ctx,
+      rect.x + rect.w / 2,
+      rect.y + 23,
+      BALL_RADIUS - 1,
+      this.nextPaletteIndex,
+      -this.shooter.angle * 1.5,
+    );
+    ctx.textAlign = "start";
+    ctx.restore();
+  }
+
+  drawRestartButton(ctx, rect, label, isPressed = false) {
+    ctx.save();
+
+    const fill = ctx.createLinearGradient(rect.x, rect.y, rect.x, rect.y + rect.h);
+    if (isPressed) {
+      fill.addColorStop(0, "rgba(177, 108, 60, 0.96)");
+      fill.addColorStop(1, "rgba(104, 56, 30, 0.96)");
+    } else {
+      fill.addColorStop(0, "rgba(209, 141, 78, 0.94)");
+      fill.addColorStop(1, "rgba(121, 67, 37, 0.94)");
+    }
+    ctx.fillStyle = fill;
+    this.fillRoundedRect(ctx, rect.x, rect.y, rect.w, rect.h, 18);
+
+    ctx.strokeStyle = "rgba(251, 229, 182, 0.56)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(rect.x + 18, rect.y);
+    ctx.lineTo(rect.x + rect.w - 18, rect.y);
+    ctx.quadraticCurveTo(rect.x + rect.w, rect.y, rect.x + rect.w, rect.y + 18);
+    ctx.lineTo(rect.x + rect.w, rect.y + rect.h - 18);
+    ctx.quadraticCurveTo(
+      rect.x + rect.w,
+      rect.y + rect.h,
+      rect.x + rect.w - 18,
+      rect.y + rect.h,
+    );
+    ctx.lineTo(rect.x + 18, rect.y + rect.h);
+    ctx.quadraticCurveTo(rect.x, rect.y + rect.h, rect.x, rect.y + rect.h - 18);
+    ctx.lineTo(rect.x, rect.y + 18);
+    ctx.quadraticCurveTo(rect.x, rect.y, rect.x + 18, rect.y);
+    ctx.stroke();
+
+    ctx.fillStyle = "#fff3d2";
+    ctx.font = "600 15px Trebuchet MS";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2 + 1);
+    ctx.textAlign = "start";
+    ctx.textBaseline = "alphabetic";
+    ctx.restore();
   }
 
   drawBall(ctx, x, y, radius, paletteIndex, rotation, impact = 0) {
