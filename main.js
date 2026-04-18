@@ -1385,86 +1385,114 @@ class ZumaGame {
   }
 
   drawBackground(ctx) {
-    const sky = ctx.createLinearGradient(0, 0, 0, GAME_HEIGHT);
-    sky.addColorStop(0, "#21595c");
-    sky.addColorStop(0.5, "#123639");
-    sky.addColorStop(1, "#081112");
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    const canopy = ctx.createLinearGradient(0, 0, 0, 176);
+    canopy.addColorStop(0, "#17383e");
+    canopy.addColorStop(0.55, "#10272d");
+    canopy.addColorStop(1, "#0a1519");
+    ctx.fillStyle = canopy;
+    ctx.fillRect(0, 0, GAME_WIDTH, 176);
+
+    const slab = ctx.createLinearGradient(0, 118, 0, GAME_HEIGHT);
+    slab.addColorStop(0, "#7f8990");
+    slab.addColorStop(0.48, "#6e7880");
+    slab.addColorStop(1, "#5b646d");
+    ctx.fillStyle = slab;
+    ctx.fillRect(0, 108, GAME_WIDTH, GAME_HEIGHT - 108);
+
+    ctx.fillStyle = "rgba(255, 255, 255, 0.045)";
+    for (let i = 0; i < 16; i += 1) {
+      ctx.beginPath();
+      ctx.ellipse(
+        28 + i * 26,
+        156 + (i % 5) * 118,
+        18 + (i % 3) * 11,
+        12 + (i % 4) * 6,
+        0.22 * (i % 4),
+        0,
+        TAU,
+      );
+      ctx.fill();
+    }
+
+    ctx.fillStyle = "rgba(43, 51, 57, 0.16)";
+    for (let i = 0; i < 12; i += 1) {
+      ctx.beginPath();
+      ctx.ellipse(
+        40 + i * 32,
+        214 + (i % 4) * 146,
+        22 + (i % 2) * 16,
+        10 + (i % 3) * 7,
+        0.3,
+        0,
+        TAU,
+      );
+      ctx.fill();
+    }
 
     const glow = ctx.createRadialGradient(
-      GAME_WIDTH * 0.38,
-      160,
-      10,
-      GAME_WIDTH * 0.38,
-      160,
-      280,
+      this.shooter.x + 22,
+      118,
+      14,
+      this.shooter.x + 22,
+      118,
+      268,
     );
-    glow.addColorStop(0, "rgba(255, 217, 122, 0.26)");
-    glow.addColorStop(1, "rgba(255, 217, 122, 0)");
+    glow.addColorStop(0, "rgba(233, 192, 98, 0.18)");
+    glow.addColorStop(1, "rgba(233, 192, 98, 0)");
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    ctx.fillStyle = "rgba(238, 225, 192, 0.035)";
-    for (let i = 0; i < 8; i += 1) {
+    const tileRects = [
+      { x: 26, y: 194, w: 56, h: 50 },
+      { x: GAME_WIDTH - 82, y: 194, w: 56, h: 50 },
+      { x: 28, y: GAME_HEIGHT - 168, w: 48, h: 44 },
+      { x: GAME_WIDTH - 78, y: GAME_HEIGHT - 168, w: 48, h: 44 },
+    ];
+    for (const rect of tileRects) {
+      this.drawStonePanel(ctx, rect.x, rect.y, rect.w, rect.h, 12, {
+        top: "#8d989f",
+        bottom: "#67727a",
+        stroke: "rgba(72, 54, 35, 0.5)",
+        innerStroke: "rgba(255, 236, 185, 0.12)",
+        shadow: "rgba(22, 26, 31, 0.12)",
+      });
+      ctx.strokeStyle = "rgba(78, 89, 95, 0.55)";
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(46 + i * 54, 60 + (i % 2) * 22, 18 + (i % 3) * 8, 0, TAU);
-      ctx.fill();
+      ctx.arc(rect.x + rect.w * 0.42, rect.y + rect.h * 0.44, 9, 0.3, 4.9);
+      ctx.lineTo(rect.x + rect.w * 0.65, rect.y + rect.h * 0.62);
+      ctx.arc(rect.x + rect.w * 0.52, rect.y + rect.h * 0.54, 11, 5.2, 2.4);
+      ctx.stroke();
     }
 
     const altarGlow = ctx.createRadialGradient(
       this.shooter.x,
-      this.shooter.y - 10,
+      this.shooter.y,
       18,
       this.shooter.x,
-      this.shooter.y - 10,
-      138,
+      this.shooter.y,
+      164,
     );
-    altarGlow.addColorStop(0, "rgba(244, 217, 129, 0.18)");
-    altarGlow.addColorStop(1, "rgba(244, 217, 129, 0)");
+    altarGlow.addColorStop(0, "rgba(239, 212, 126, 0.24)");
+    altarGlow.addColorStop(1, "rgba(239, 212, 126, 0)");
     ctx.fillStyle = altarGlow;
     ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    ctx.fillStyle = "#102628";
+    ctx.strokeStyle = "rgba(73, 84, 94, 0.34)";
+    ctx.lineWidth = 18;
     ctx.beginPath();
-    ctx.ellipse(this.shooter.x, this.shooter.y + 30, 118, 84, 0, 0, TAU);
-    ctx.fill();
-
-    const altar = ctx.createRadialGradient(
-      this.shooter.x - 24,
-      this.shooter.y - 34,
-      16,
-      this.shooter.x,
-      this.shooter.y + 18,
-      112,
-    );
-    altar.addColorStop(0, "#2a5a5d");
-    altar.addColorStop(0.48, "#153739");
-    altar.addColorStop(1, "#0b191b");
-    ctx.fillStyle = altar;
-    ctx.beginPath();
-    ctx.ellipse(this.shooter.x, this.shooter.y + 16, 94, 64, 0, 0, TAU);
-    ctx.fill();
-
-    ctx.strokeStyle = "rgba(244, 225, 168, 0.14)";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.ellipse(this.shooter.x, this.shooter.y + 16, 84, 56, 0, 0, TAU);
+    ctx.arc(this.shooter.x, this.shooter.y + 8, 100, 0, TAU);
     ctx.stroke();
 
-    ctx.fillStyle = "rgba(7, 18, 19, 0.76)";
+    ctx.strokeStyle = "rgba(196, 163, 98, 0.18)";
+    ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.ellipse(this.shooter.x, this.shooter.y + 58, 72, 22, 0, 0, TAU);
-    ctx.fill();
+    ctx.arc(this.shooter.x, this.shooter.y + 8, 100, 0, TAU);
+    ctx.stroke();
 
-    ctx.fillStyle = "rgba(8, 20, 21, 0.55)";
+    ctx.fillStyle = "rgba(22, 28, 33, 0.42)";
     ctx.beginPath();
-    ctx.moveTo(0, GAME_HEIGHT);
-    ctx.lineTo(0, GAME_HEIGHT - 88);
-    ctx.quadraticCurveTo(88, GAME_HEIGHT - 134, 170, GAME_HEIGHT - 112);
-    ctx.quadraticCurveTo(280, GAME_HEIGHT - 84, GAME_WIDTH, GAME_HEIGHT - 124);
-    ctx.lineTo(GAME_WIDTH, GAME_HEIGHT);
-    ctx.closePath();
+    ctx.ellipse(this.shooter.x, this.shooter.y + 72, 96, 26, 0, 0, TAU);
     ctx.fill();
   }
 
@@ -1473,16 +1501,19 @@ class ZumaGame {
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
-    ctx.strokeStyle = "rgba(34, 43, 58, 0.82)";
-    ctx.lineWidth = 36;
+    // Keep the track visually simple: one soft carved shadow, one stone groove
+    // body, and one thin inner crease. Too many stacked strokes start reading
+    // as UI outlines instead of a channel cut into the slab.
+    ctx.strokeStyle = "rgba(18, 22, 28, 0.14)";
+    ctx.lineWidth = 30;
     this.strokePath(ctx);
 
-    ctx.strokeStyle = "rgba(92, 103, 124, 0.96)";
-    ctx.lineWidth = 26;
+    ctx.strokeStyle = "rgba(111, 121, 130, 0.92)";
+    ctx.lineWidth = 20;
     this.strokePath(ctx);
 
-    ctx.strokeStyle = "rgba(198, 210, 228, 0.24)";
-    ctx.lineWidth = 6;
+    ctx.strokeStyle = "rgba(60, 70, 78, 0.34)";
+    ctx.lineWidth = 8;
     this.strokePath(ctx);
 
     ctx.restore();
@@ -1574,31 +1605,61 @@ class ZumaGame {
     ctx.save();
     ctx.translate(x, y);
 
-    const base = ctx.createRadialGradient(0, -10, 6, 0, 0, 44);
-    base.addColorStop(0, "#ecd992");
-    base.addColorStop(0.45, "#9f7a3d");
-    base.addColorStop(1, "#3c2411");
-    ctx.fillStyle = base;
+    ctx.fillStyle = "rgba(18, 21, 24, 0.45)";
     ctx.beginPath();
-    ctx.arc(0, 0, 34, 0, TAU);
+    ctx.ellipse(0, 36, 76, 18, 0, 0, TAU);
     ctx.fill();
 
-    ctx.fillStyle = "rgba(15, 8, 4, 0.5)";
+    const plinth = ctx.createRadialGradient(-18, -24, 12, 0, 0, 58);
+    plinth.addColorStop(0, "#9ea8ad");
+    plinth.addColorStop(0.46, "#73818b");
+    plinth.addColorStop(1, "#4a555f");
+    ctx.fillStyle = plinth;
     ctx.beginPath();
-    ctx.arc(0, 6, 27, 0, TAU);
+    ctx.arc(0, 0, 46, 0, TAU);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(97, 73, 42, 0.92)";
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.arc(0, 0, 39, 0, TAU);
+    ctx.stroke();
+
+    ctx.strokeStyle = "rgba(228, 198, 121, 0.34)";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(0, 0, 39, 0, TAU);
+    ctx.stroke();
+
+    const core = ctx.createRadialGradient(-10, -16, 4, 0, 0, 26);
+    core.addColorStop(0, "#31444c");
+    core.addColorStop(0.54, "#19272c");
+    core.addColorStop(1, "#0f171b");
+    ctx.fillStyle = core;
+    ctx.beginPath();
+    ctx.arc(0, 0, 24, 0, TAU);
     ctx.fill();
 
     ctx.save();
     ctx.rotate(angle);
-    ctx.fillStyle = "#6f4d28";
-    this.fillRoundedRect(ctx, -14, -70, 28, 72, 12);
+    const barrelShadow = ctx.createLinearGradient(0, -86, 0, 8);
+    barrelShadow.addColorStop(0, "rgba(12, 14, 18, 0.5)");
+    barrelShadow.addColorStop(1, "rgba(12, 14, 18, 0.02)");
+    ctx.fillStyle = barrelShadow;
+    this.fillRoundedRect(ctx, -17, -77, 34, 88, 15);
 
-    const barrel = ctx.createLinearGradient(0, -72, 0, 2);
-    barrel.addColorStop(0, "#f6dc8a");
-    barrel.addColorStop(0.6, "#a57e45");
-    barrel.addColorStop(1, "#43270f");
+    const barrel = ctx.createLinearGradient(0, -80, 0, 4);
+    barrel.addColorStop(0, "#d1ba79");
+    barrel.addColorStop(0.25, "#8f6b3b");
+    barrel.addColorStop(0.72, "#59656e");
+    barrel.addColorStop(1, "#36424a");
     ctx.fillStyle = barrel;
-    this.fillRoundedRect(ctx, -9, -82, 18, 80, 10);
+    this.fillRoundedRect(ctx, -12, -82, 24, 86, 12);
+
+    ctx.strokeStyle = "rgba(245, 220, 146, 0.3)";
+    ctx.lineWidth = 2;
+    this.fillRoundedRect(ctx, -9, -71, 18, 62, 9);
+    ctx.stroke();
     ctx.restore();
 
     this.drawBall(ctx, 0, -10, BALL_RADIUS + 1, this.currentPaletteIndex, angle * 2.2);
@@ -1617,18 +1678,46 @@ class ZumaGame {
   // The top overlay is now a real HUD layer: state, score/combo, next ball and
   // touch-friendly restart all live here instead of temporary prototype text.
   drawOverlay(ctx) {
-    ctx.fillStyle = "rgba(4, 8, 9, 0.18)";
-    ctx.fillRect(0, 0, GAME_WIDTH, 108);
+    this.drawStonePanel(ctx, 16, 14, 232, 92, 22, {
+      top: "#6e7880",
+      bottom: "#57626b",
+      stroke: "rgba(92, 69, 39, 0.92)",
+      innerStroke: "rgba(244, 225, 173, 0.18)",
+      shadow: "rgba(12, 15, 18, 0.18)",
+    });
 
-    ctx.fillStyle = "#f4e5bd";
-    ctx.font = "600 18px Trebuchet MS";
-    ctx.fillText("中央发射口原型", 24, 34);
+    ctx.fillStyle = "#f0d57a";
+    ctx.font = "600 18px Georgia";
+    ctx.fillText("祭坛试炼", 30, 38);
 
-    ctx.fillStyle = "rgba(244, 229, 189, 0.74)";
-    ctx.font = "14px Trebuchet MS";
-    ctx.fillText("拖动瞄准，松开发射", 24, 54);
-    ctx.fillText(`状态: ${this.getGameStateLabel()}  |  链长: ${this.chain.length}`, 24, 76);
-    ctx.fillText(`分数: ${this.score}  |  ${this.getComboHudText()}`, 24, 96);
+    ctx.fillStyle = "rgba(242, 229, 198, 0.78)";
+    ctx.font = "13px Georgia";
+    ctx.fillText("石质祭坛 · 青铜机关", 30, 56);
+
+    this.drawStonePanel(ctx, 28, 66, 86, 28, 12, {
+      top: "#7a858d",
+      bottom: "#616d75",
+      stroke: "rgba(86, 64, 37, 0.76)",
+      innerStroke: "rgba(246, 229, 183, 0.12)",
+      shadow: "rgba(0, 0, 0, 0.1)",
+    });
+    this.drawStonePanel(ctx, 120, 66, 118, 28, 12, {
+      top: "#7a858d",
+      bottom: "#616d75",
+      stroke: "rgba(86, 64, 37, 0.76)",
+      innerStroke: "rgba(246, 229, 183, 0.12)",
+      shadow: "rgba(0, 0, 0, 0.1)",
+    });
+
+    ctx.fillStyle = "#e8d7ae";
+    ctx.font = "600 13px Georgia";
+    ctx.fillText(`状态 ${this.getGameStateLabel()}`, 40, 85);
+    ctx.fillText(`链长 ${this.chain.length}`, 132, 85);
+
+    ctx.fillStyle = "#f1e5c1";
+    ctx.font = "600 13px Georgia";
+    ctx.fillText(`分数 ${this.score}`, 30, 103);
+    ctx.fillText(this.getComboHudText(), 128, 103);
     this.drawHudNextPreview(ctx);
     this.drawRestartButton(
       ctx,
@@ -1673,60 +1762,52 @@ class ZumaGame {
     }
 
     ctx.save();
-    ctx.fillStyle = "rgba(4, 8, 10, 0.42)";
+    ctx.fillStyle = "rgba(6, 10, 12, 0.46)";
     ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    const panelWidth = 252;
-    const panelHeight = 146;
+    const panelWidth = 266;
+    const panelHeight = 164;
     const panelX = (GAME_WIDTH - panelWidth) / 2;
-    const panelY = GAME_HEIGHT * 0.12;
+    const panelY = GAME_HEIGHT * 0.115;
 
-    const panel = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelHeight);
-    panel.addColorStop(0, "rgba(14, 26, 30, 0.94)");
-    panel.addColorStop(1, "rgba(8, 17, 20, 0.94)");
-    ctx.fillStyle = panel;
-    this.fillRoundedRect(ctx, panelX, panelY, panelWidth, panelHeight, 24);
+    this.drawStonePanel(ctx, panelX, panelY, panelWidth, panelHeight, 26, {
+      top: "#707b83",
+      bottom: "#59646d",
+      stroke:
+        this.gameState === "win"
+          ? "rgba(124, 92, 47, 0.96)"
+          : "rgba(114, 73, 58, 0.96)",
+      innerStroke:
+        this.gameState === "win"
+          ? "rgba(244, 220, 137, 0.26)"
+          : "rgba(231, 167, 143, 0.22)",
+      shadow: "rgba(8, 10, 12, 0.22)",
+    });
 
-    ctx.strokeStyle =
-      this.gameState === "win"
-        ? "rgba(244, 220, 137, 0.72)"
-        : "rgba(220, 133, 115, 0.72)";
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(242, 224, 177, 0.18)";
+    ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(panelX + 24, panelY);
-    ctx.lineTo(panelX + panelWidth - 24, panelY);
-    ctx.quadraticCurveTo(panelX + panelWidth, panelY, panelX + panelWidth, panelY + 24);
-    ctx.lineTo(panelX + panelWidth, panelY + panelHeight - 24);
-    ctx.quadraticCurveTo(
-      panelX + panelWidth,
-      panelY + panelHeight,
-      panelX + panelWidth - 24,
-      panelY + panelHeight,
-    );
-    ctx.lineTo(panelX + 24, panelY + panelHeight);
-    ctx.quadraticCurveTo(panelX, panelY + panelHeight, panelX, panelY + panelHeight - 24);
-    ctx.lineTo(panelX, panelY + 24);
-    ctx.quadraticCurveTo(panelX, panelY, panelX + 24, panelY);
+    ctx.arc(GAME_WIDTH / 2, panelY + 34, 16, 0, TAU);
     ctx.stroke();
 
-    ctx.fillStyle = "#f4e5bd";
+    ctx.fillStyle = "#f0ddb0";
     ctx.textAlign = "center";
-    ctx.font = "600 28px Trebuchet MS";
-    ctx.fillText(this.gameState === "win" ? "胜利" : "失败", GAME_WIDTH / 2, panelY + 52);
+    ctx.font = "600 28px Georgia";
+    ctx.fillText(this.gameState === "win" ? "祭坛告捷" : "试炼中断", GAME_WIDTH / 2, panelY + 58);
 
-    ctx.fillStyle = "rgba(244, 229, 189, 0.78)";
-    ctx.font = "15px Trebuchet MS";
+    ctx.fillStyle = "rgba(244, 232, 202, 0.8)";
+    ctx.font = "15px Georgia";
     ctx.fillText(
       this.gameState === "win"
-        ? `当前球链已清空，本局得分 ${this.score}`
-        : `球链抵达终点，本局得分 ${this.score}`,
+        ? `球链已被清空 · 本局得分 ${this.score}`
+        : `球链抵达终点 · 本局得分 ${this.score}`,
       GAME_WIDTH / 2,
-      panelY + 88,
+      panelY + 96,
     );
     ctx.fillText(
       this.bestCombo > 1 ? `最高连击 x${this.bestCombo}` : "本局未触发连击",
       GAME_WIDTH / 2,
-      panelY + 108,
+      panelY + 118,
     );
     const restartRect = this.getEndCardRestartButtonRect();
     this.drawRestartButton(
@@ -1758,20 +1839,62 @@ class ZumaGame {
     ctx.globalAlpha = alpha;
     ctx.textAlign = "center";
 
-    ctx.fillStyle = "rgba(8, 17, 19, 0.46)";
-    this.fillRoundedRect(ctx, GAME_WIDTH * 0.5 - 92, 118 - rise, 184, 56, 18);
+    this.drawStonePanel(ctx, GAME_WIDTH * 0.5 - 96, 114 - rise, 192, 60, 18, {
+      top: "#6f797f",
+      bottom: "#5c666e",
+      stroke: "rgba(94, 70, 40, 0.9)",
+      innerStroke: "rgba(246, 225, 171, 0.2)",
+      shadow: "rgba(0, 0, 0, 0.15)",
+    });
 
-    ctx.fillStyle = "#ffe9a9";
-    ctx.font = "600 22px Trebuchet MS";
-    ctx.fillText(`+${this.matchFeedback.scoreDelta}`, GAME_WIDTH * 0.5, 141 - rise);
+    ctx.fillStyle = "#f1d680";
+    ctx.font = "600 22px Georgia";
+    ctx.fillText(`+${this.matchFeedback.scoreDelta}`, GAME_WIDTH * 0.5, 143 - rise);
 
     ctx.fillStyle = "rgba(244, 229, 189, 0.88)";
-    ctx.font = "13px Trebuchet MS";
+    ctx.font = "13px Georgia";
     const detail =
       this.matchFeedback.label || `消除 ${this.matchFeedback.removedCount} 颗`;
-    ctx.fillText(detail, GAME_WIDTH * 0.5, 161 - rise);
+    ctx.fillText(detail, GAME_WIDTH * 0.5, 163 - rise);
 
     ctx.textAlign = "start";
+    ctx.restore();
+  }
+
+  drawStonePanel(ctx, x, y, width, height, radius, options = {}) {
+    const {
+      top = "#728087",
+      bottom = "#59646c",
+      stroke = "rgba(94, 72, 43, 0.88)",
+      innerStroke = "rgba(247, 227, 181, 0.16)",
+      shadow = "rgba(0, 0, 0, 0.16)",
+    } = options;
+
+    ctx.save();
+
+    ctx.fillStyle = shadow;
+    this.fillRoundedRect(ctx, x, y + 4, width, height, radius);
+
+    const fill = ctx.createLinearGradient(x, y, x, y + height);
+    fill.addColorStop(0, top);
+    fill.addColorStop(0.48, bottom);
+    fill.addColorStop(1, bottom);
+    ctx.fillStyle = fill;
+    this.fillRoundedRect(ctx, x, y, width, height, radius);
+
+    ctx.fillStyle = "rgba(255, 255, 255, 0.05)";
+    this.fillRoundedRect(ctx, x + 4, y + 4, width - 8, Math.max(12, height * 0.28), radius - 4);
+
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = stroke;
+    this.fillRoundedRect(ctx, x, y, width, height, radius);
+    ctx.stroke();
+
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = innerStroke;
+    this.fillRoundedRect(ctx, x + 3, y + 3, width - 6, height - 6, Math.max(4, radius - 3));
+    ctx.stroke();
+
     ctx.restore();
   }
 
@@ -1779,29 +1902,22 @@ class ZumaGame {
     const rect = this.getHudNextPreviewRect();
 
     ctx.save();
-    ctx.fillStyle = "rgba(10, 20, 23, 0.72)";
-    this.fillRoundedRect(ctx, rect.x, rect.y, rect.w, rect.h, 18);
-    ctx.strokeStyle = "rgba(244, 229, 189, 0.18)";
-    ctx.lineWidth = 1.5;
+    this.drawStonePanel(ctx, rect.x, rect.y, rect.w, rect.h, 18, {
+      top: "#737f87",
+      bottom: "#5f6971",
+      stroke: "rgba(90, 67, 39, 0.9)",
+      innerStroke: "rgba(247, 228, 187, 0.16)",
+      shadow: "rgba(0, 0, 0, 0.16)",
+    });
+
+    ctx.strokeStyle = "rgba(228, 193, 108, 0.22)";
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(rect.x + 18, rect.y);
-    ctx.lineTo(rect.x + rect.w - 18, rect.y);
-    ctx.quadraticCurveTo(rect.x + rect.w, rect.y, rect.x + rect.w, rect.y + 18);
-    ctx.lineTo(rect.x + rect.w, rect.y + rect.h - 18);
-    ctx.quadraticCurveTo(
-      rect.x + rect.w,
-      rect.y + rect.h,
-      rect.x + rect.w - 18,
-      rect.y + rect.h,
-    );
-    ctx.lineTo(rect.x + 18, rect.y + rect.h);
-    ctx.quadraticCurveTo(rect.x, rect.y + rect.h, rect.x, rect.y + rect.h - 18);
-    ctx.lineTo(rect.x, rect.y + 18);
-    ctx.quadraticCurveTo(rect.x, rect.y, rect.x + 18, rect.y);
+    ctx.arc(rect.x + rect.w / 2, rect.y + 23, 18, 0, TAU);
     ctx.stroke();
 
-    ctx.fillStyle = "rgba(244, 229, 189, 0.72)";
-    ctx.font = "11px Trebuchet MS";
+    ctx.fillStyle = "rgba(244, 229, 189, 0.78)";
+    ctx.font = "11px Georgia";
     ctx.textAlign = "center";
     ctx.fillText("下一个", rect.x + rect.w / 2, rect.y + rect.h - 8);
     this.drawBall(
@@ -1819,38 +1935,19 @@ class ZumaGame {
   drawRestartButton(ctx, rect, label, isPressed = false) {
     ctx.save();
 
-    const fill = ctx.createLinearGradient(rect.x, rect.y, rect.x, rect.y + rect.h);
-    if (isPressed) {
-      fill.addColorStop(0, "rgba(177, 108, 60, 0.96)");
-      fill.addColorStop(1, "rgba(104, 56, 30, 0.96)");
-    } else {
-      fill.addColorStop(0, "rgba(209, 141, 78, 0.94)");
-      fill.addColorStop(1, "rgba(121, 67, 37, 0.94)");
-    }
-    ctx.fillStyle = fill;
-    this.fillRoundedRect(ctx, rect.x, rect.y, rect.w, rect.h, 18);
+    this.drawStonePanel(ctx, rect.x, rect.y, rect.w, rect.h, 18, {
+      top: isPressed ? "#876748" : "#94724d",
+      bottom: isPressed ? "#64472e" : "#705139",
+      stroke: "rgba(242, 217, 151, 0.42)",
+      innerStroke: "rgba(255, 240, 210, 0.12)",
+      shadow: "rgba(0, 0, 0, 0.18)",
+    });
 
-    ctx.strokeStyle = "rgba(251, 229, 182, 0.56)";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(rect.x + 18, rect.y);
-    ctx.lineTo(rect.x + rect.w - 18, rect.y);
-    ctx.quadraticCurveTo(rect.x + rect.w, rect.y, rect.x + rect.w, rect.y + 18);
-    ctx.lineTo(rect.x + rect.w, rect.y + rect.h - 18);
-    ctx.quadraticCurveTo(
-      rect.x + rect.w,
-      rect.y + rect.h,
-      rect.x + rect.w - 18,
-      rect.y + rect.h,
-    );
-    ctx.lineTo(rect.x + 18, rect.y + rect.h);
-    ctx.quadraticCurveTo(rect.x, rect.y + rect.h, rect.x, rect.y + rect.h - 18);
-    ctx.lineTo(rect.x, rect.y + 18);
-    ctx.quadraticCurveTo(rect.x, rect.y, rect.x + 18, rect.y);
-    ctx.stroke();
+    ctx.fillStyle = isPressed ? "rgba(54, 35, 20, 0.18)" : "rgba(255, 241, 210, 0.08)";
+    this.fillRoundedRect(ctx, rect.x + 5, rect.y + 5, rect.w - 10, Math.max(8, rect.h * 0.36), 13);
 
-    ctx.fillStyle = "#fff3d2";
-    ctx.font = "600 15px Trebuchet MS";
+    ctx.fillStyle = "#f4e7c3";
+    ctx.font = "600 15px Georgia";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2 + 1);
@@ -2043,30 +2140,60 @@ class ZumaGame {
     canvas.height = size;
     const ctx = canvas.getContext("2d");
 
-    // The texture is intentionally directional: stripes plus arcs make the
-    // rotation of the ball visible when the sprite is spun around its center.
+    // The texture is intentionally directional so rotation stays readable, but
+    // Phase 3 pushes it away from "flat stripes" and closer to polished mineral
+    // or ritual jewel surfaces: broad bands, ring engravings and a few bright
+    // facet cuts.
     ctx.translate(size / 2, size / 2);
     ctx.fillStyle = "rgba(255, 255, 255, 0)";
     ctx.fillRect(-size / 2, -size / 2, size, size);
 
-    ctx.rotate(-Math.PI / 7);
-    for (let i = -4; i <= 4; i += 1) {
+    ctx.rotate(-Math.PI / 6);
+    for (let i = -3; i <= 3; i += 1) {
       ctx.fillStyle = i % 2 === 0 ? palette.stripeDark : palette.stripeLight;
-      ctx.fillRect(-size * 0.8, i * 14 - 4, size * 1.6, 10);
+      ctx.fillRect(-size * 0.82, i * 18 - 6, size * 1.64, 12);
     }
+
+    ctx.rotate(Math.PI / 5);
+    ctx.fillStyle = `${palette.accent}2c`;
+    ctx.fillRect(-size * 0.7, -6, size * 1.4, 8);
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.translate(size / 2, size / 2);
-    ctx.lineWidth = 12;
-    ctx.strokeStyle = `${palette.accent}88`;
+
+    ctx.strokeStyle = `${palette.accent}96`;
+    ctx.lineWidth = 9;
     ctx.beginPath();
-    ctx.arc(0, 0, size * 0.22, -Math.PI * 0.85, Math.PI * 0.22);
+    ctx.arc(0, 0, size * 0.2, -Math.PI * 0.92, Math.PI * 0.12);
     ctx.stroke();
 
-    ctx.strokeStyle = `${palette.dark}bb`;
+    ctx.strokeStyle = `${palette.dark}aa`;
+    ctx.lineWidth = 11;
     ctx.beginPath();
-    ctx.arc(10, -8, size * 0.34, Math.PI * 0.14, Math.PI * 1.16);
+    ctx.arc(12, -8, size * 0.32, Math.PI * 0.08, Math.PI * 1.14);
     ctx.stroke();
+
+    ctx.strokeStyle = `${palette.stripeLight.slice(0, -4)}0.36)`;
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(-8, 10, size * 0.16, Math.PI * 0.92, Math.PI * 1.84);
+    ctx.stroke();
+
+    ctx.fillStyle = `${palette.accent}66`;
+    const facets = [
+      [-18, -18, 12, 8],
+      [14, -6, 11, 7],
+      [-6, 16, 10, 7],
+    ];
+    for (const [x, y, w, h] of facets) {
+      ctx.beginPath();
+      ctx.moveTo(x, y - h);
+      ctx.lineTo(x + w, y);
+      ctx.lineTo(x, y + h);
+      ctx.lineTo(x - w, y);
+      ctx.closePath();
+      ctx.fill();
+    }
 
     return canvas;
   }
