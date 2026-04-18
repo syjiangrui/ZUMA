@@ -144,59 +144,99 @@ class ZumaGame {
     requestAnimationFrame((time) => this.loop(time));
   }
 
-  // Build a smooth path from a short list of control points, then resample it
-  // into many small segments with cumulative arc length. Gameplay never moves
-  // balls by raw x/y velocity on the track; it only changes path distance.
+  // Build the track as an Archimedean spiral around the central shooter altar.
+  // Gameplay still only moves balls by path distance; the spiral is just a more
+  // faithful geometric source for the sampled path points.
   createPath() {
-    const controlPoints = [
-      { x: 430, y: 716 },
-      { x: 340, y: 750 },
-      { x: 196, y: 748 },
-      { x: 84, y: 688 },
-      { x: 42, y: 554 },
-      { x: 58, y: 374 },
-      { x: 162, y: 276 },
-      { x: 318, y: 274 },
-      { x: 390, y: 382 },
-      { x: 388, y: 550 },
-      { x: 330, y: 676 },
-      { x: 228, y: 718 },
-      { x: 126, y: 678 },
-      { x: 90, y: 580 },
-      { x: 110, y: 460 },
-      { x: 186, y: 382 },
-      { x: 288, y: 392 },
-      { x: 338, y: 486 },
-      { x: 320, y: 598 },
-      { x: 252, y: 648 },
-      { x: 172, y: 620 },
-      { x: 148, y: 538 },
-      { x: 170, y: 456 },
-      { x: 238, y: 424 },
-      { x: 296, y: 458 },
-      { x: 292, y: 530 },
-      { x: 248, y: 566 },
-      { x: 210, y: 548 },
-      { x: 208, y: 496 },
-      { x: 246, y: 468 },
-    ];
+    // Spiral tuning notes:
+    // - centerX / centerY move the whole spiral on screen
+    // - outerRadius controls the outermost ring footprint; if the track clips
+    //   the screen edges, reduce this first
+    // - innerRadius controls how close the spiral comes to the shooter altar
+    // - startAngle rotates the whole spiral and therefore changes where the
+    //   incoming outer ring first becomes visible
+    // - turnCount controls how many coils the path makes before reaching the
+    //   goal; larger values create a denser Zuma-like spiral
+    // These constants are intentionally kept together so future path tuning can
+    // happen here without touching collision, insertion or render code.
+    const centerX = this.shooter.x + 11;
+    const centerY = this.shooter.y + 8;
+    const outerRadius = 206;
+    const innerRadius = 84;
+    const startAngle = 0.96;
+    const turnCount = 2.6;
+    const endAngle = startAngle + TAU * turnCount;
+    const spiralSampleCount = 560;
+    const spiralPoints = [];
 
-    const sampled = [];
-    const segmentsPerPair = 28;
+    for (let step = 0; step <= spiralSampleCount; step += 1) {
+      const t = step / spiralSampleCount;
+      const theta = startAngle + (endAngle - startAngle) * t;
+      const radius = outerRadius + (innerRadius - outerRadius) * t;
 
-    for (let i = 0; i < controlPoints.length - 1; i += 1) {
-      const p0 = controlPoints[Math.max(0, i - 1)];
-      const p1 = controlPoints[i];
-      const p2 = controlPoints[i + 1];
-      const p3 = controlPoints[Math.min(controlPoints.length - 1, i + 2)];
-
-      for (let step = 0; step < segmentsPerPair; step += 1) {
-        const t = step / segmentsPerPair;
-        sampled.push(this.catmullRom(p0, p1, p2, p3, t));
-      }
+      spiralPoints.push({
+        x: centerX + Math.cos(theta) * radius,
+        y: centerY + Math.sin(theta) * radius,
+      });
     }
 
-    sampled.push(controlPoints[controlPoints.length - 1]);
+    // Classical Zuma-style paths do not simply "start on the board"; they
+    // enter from off-screen and then wrap around the central altar. We prepend
+    // a short cubic approach segment that joins the outer spiral tangentially
+    // so the first visible track feels like an incoming lane rather than an
+    // abruptly cut curve.
+    const joinPoint = spiralPoints[0];
+    const nextPoint = spiralPoints[1];
+    const tangentLength = Math.hypot(
+      nextPoint.x - joinPoint.x,
+      nextPoint.y - joinPoint.y,
+    ) || 1;
+    const tangentX = (nextPoint.x - joinPoint.x) / tangentLength;
+    const tangentY = (nextPoint.y - joinPoint.y) / tangentLength;
+
+    // Entry segment tuning notes:
+    // - entryStart must stay outside the screen so balls visibly enter from
+    //   off-board instead of spawning on the first visible arc
+    // - entryControl1 controls how long the approach stays near the outer edge
+    // - entryControl2 controls how softly the approach bends into the spiral;
+    //   it is derived from the spiral tangent so the join does not kink
+    // If the first visible segment feels too abrupt, increase the control
+    // distances before changing the spiral itself.
+    const entryStart = {
+      x: GAME_WIDTH + 96,
+      y: joinPoint.y + 22,
+    };
+    const entryControl1 = {
+      x: GAME_WIDTH + 42,
+      y: joinPoint.y + 18,
+    };
+    const entryControl2 = {
+      x: joinPoint.x - tangentX * 120,
+      y: joinPoint.y - tangentY * 120,
+    };
+
+    const sampled = [];
+    // Sample the entry Bézier separately, then append the spiral samples. The
+    // rest of the game only sees one continuous polyline in pathPoints.
+    const entrySampleCount = 56;
+    for (let step = 0; step < entrySampleCount; step += 1) {
+      const t = step / entrySampleCount;
+      const inv = 1 - t;
+      sampled.push({
+        x:
+          inv * inv * inv * entryStart.x +
+          3 * inv * inv * t * entryControl1.x +
+          3 * inv * t * t * entryControl2.x +
+          t * t * t * joinPoint.x,
+        y:
+          inv * inv * inv * entryStart.y +
+          3 * inv * inv * t * entryControl1.y +
+          3 * inv * t * t * entryControl2.y +
+          t * t * t * joinPoint.y,
+      });
+    }
+
+    sampled.push(...spiralPoints);
 
     let total = 0;
     // 预采样路径并记录累计弧长；后续所有轨道运动都通过 len 映射到屏幕坐标。
