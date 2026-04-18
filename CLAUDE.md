@@ -35,7 +35,7 @@ Since this is a single-page HTML game with no build system, development is strai
 
 ### High-Level System Design
 
-The entire game logic and rendering is contained in a single `main.js` file (2,527 lines) within a `ZumaGame` class. While currently monolithic, the code is logically organized into 8 clear subsystems:
+The entire game logic and rendering is contained in a single `main.js` file (~2,800 lines) within a `ZumaGame` class. While currently monolithic, the code is logically organized into 8 clear subsystems:
 
 1. **Configuration & Constants** (top of file)
    - Fixed logical resolution: `430 x 932` (portrait mobile)
@@ -82,7 +82,7 @@ The entire game logic and rendering is contained in a single `main.js` file (2,5
 
 8. **Rendering** (`render()`, `drawBall()`, `drawChain()`, `drawBackground()`, etc.)
    - Layered draw order: background → track → goal → chain → projectile → aim guide → shooter → HUD → end card
-   - **Shooter is a classic Zuma stone frog** (`drawShooter()` → `drawFrogBody()`, `drawFrogHead()`, `drawFrogEyes()`, `drawFrogBellyBall()`). Entire frog rotates with aim angle; ground shadow stays flat. Current ball is held in the frog's mouth (upper jaw overlaps ball top); next ball sits in a belly socket.
+   - **Shooter is a classic Zuma stone frog** (`drawShooter()` → `drawFrogBody()`, `drawFrogJawBehind()`, `drawFrogJawFront()`, `drawFrogEyes()`, `drawFrogBellySocket()`). Entire frog rotates with aim angle; ground shadow stays flat. Current ball is held in the frog's mouth (upper jaw overlaps ball top); next ball sits in a belly socket. Frog geometry is pre-rendered to two offscreen layers (behind/front of ball) for performance.
    - Ball textures: procedurally generated with stone body + rolling equatorial band
    - Temple glyphs: scarab, eye, sun, mask, ankh (one per color palette)
    - No external image assets; all visuals are Canvas 2D primitives or generated textures
@@ -270,7 +270,7 @@ When/if modularization begins, prioritize in this order:
 - **Match not triggering?** Verify `pendingMatchChecks` queue is processing and `hasGapBetween()` is not blocking across a split.
 - **Projectile missing collision?** Check `findChainCollision()` distance threshold and confirm projectile velocity is not skipping frames (see `dt` clamping at 0.033).
 - **Split not merging?** Inspect `resolveSplitClosure()` epsilon and confirm rear offset has caught the animated front position.
-- **Stuttering on mobile?** Profile `render()` draw calls; simplify gradient complexity or reduce particle counts if applicable.
+- **Stuttering on mobile?** Check if new rendering code is creating gradients per frame instead of using cached offscreen canvases. Profile `render()` draw calls; see Performance Architecture section above.
 
 ## File Structure
 
@@ -278,7 +278,7 @@ When/if modularization begins, prioritize in this order:
 .
 ├── index.html              # Single HTML entry point (minimal)
 ├── style.css               # Canvas sizing, page layout, color scheme
-├── main.js                 # Entire game (2,527 lines; single ZumaGame class)
+├── main.js                 # Entire game (~2,800 lines; single ZumaGame class)
 ├── CLAUDE.md               # This file
 ├── TECHNICAL_ARCHITECTURE.md  # Implementation deep-dive (reference docs)
 └── ZUMA_PLAN.md            # Phase 1/2/3 planning and history
@@ -292,13 +292,27 @@ When/if modularization begins, prioritize in this order:
 - Touch-action disabled on canvas to prevent browser pan/zoom
 - No horizontal orientation support (portrait only)
 
+## Performance Architecture
+
+The rendering pipeline uses aggressive offscreen-canvas caching to avoid creating gradients and rebuilding paths every frame:
+
+- **`staticSceneCache`**: Background + track + goal pre-rendered once to a full-screen offscreen canvas. `render()` blits it with a single `drawImage`.
+- **`cachedTrackPath`** (`Path2D`): Track polyline (~616 points) built once; `strokePath()` uses `ctx.stroke(path2d)` instead of per-frame `lineTo` loops.
+- **`ballBaseCache[palette]`**: Per-palette body gradient pre-rendered to offscreen canvases. `drawBall()` uses `drawImage` for the base layer.
+- **`ballOverCache`**: Shared matte shade + worn bloom overlay (radius-dependent, palette-independent) pre-rendered once.
+- **`bandShadeCache`**: Top/bottom + side shading for rolling band texture, pre-rendered once.
+- **`frogCacheBehind` / `frogCacheFront`**: Stone frog split into two layers (body+lower jaw vs. upper jaw+eyes) so the held ball can be drawn between them at runtime.
+- **`hudPanelCache`**: Fixed HUD stone panel backgrounds rendered on first draw.
+
+When modifying rendering code, always check whether a gradient or path can be moved into one of these caches. Only rolling band textures (rotation-dependent) and dynamic text/scores need per-frame rendering.
+
 ## Performance Considerations
 
+- **Per-frame gradient creates**: ~8 (down from ~190 before caching). Only conditional panels (match feedback, round card) and non-standard-radius preview balls still create live gradients.
 - **Ball chain updates**: O(n) per frame (n = ball count, ~30 typical)
 - **Collision detection**: O(n) linear scan; adequate for current scale
 - **Path lookup**: O(log n) binary search on `pathPoints[]`
 - **Particle effects** (Phase 3): Monitor frame rate on low-end phones; implement simple disable/downgrade flags if needed
-- **Canvas clear + redraw**: Full-canvas repaint each frame; acceptable for this scale
 
 ## Key Parameters to Tune (all in constants section)
 

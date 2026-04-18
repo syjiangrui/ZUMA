@@ -809,7 +809,7 @@ What is still not the focus yet:
 - Particle-heavy polish (`H`)
 - Full HUD skin pass (`I`)
 - Audio (`J`)
-- Performance tuning (`K`)
+- Performance tuning (`K`) — note: a major rendering-cache pass has already been done (offscreen canvases for background/track/balls/frog/HUD, Path2D for track, gradient count reduced from ~190/frame to ~8/frame). Further K work would focus on particle budgets and low-end device degradation.
 
 Next expected move after G is stable:
 - Start `H` for hit / match / merge feedback effects.
