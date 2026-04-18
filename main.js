@@ -14,6 +14,9 @@ const START_CHAIN_COUNT = 30;
 // goal. EXIT_GAP lets the whole chain travel a bit past the visible goal before
 // the prototype resets.
 const CHAIN_SPEED = 72;
+const CHAIN_ENTRY_SPEED = 340;
+const CHAIN_ENTRY_TAIL_S = -42;
+const CHAIN_ENTRY_START_HEAD_S = -32;
 const EXIT_GAP = 180;
 
 // Projectile tuning for both mouse and touch play.
@@ -134,6 +137,7 @@ class ZumaGame {
     // mergeSettle is a tiny post-merge dampening window. It gives the seam a
     // moment to "land" before the chain resumes full conveyor speed.
     this.mergeSettle = null;
+    this.chainIntro = null;
     this.lastTime = 0;
 
     this.createPath();
@@ -269,7 +273,16 @@ class ZumaGame {
       this.createChainBall(index % 4),
     );
 
-    this.chainHeadS = (this.chain.length - 1) * BALL_SPACING + 36;
+    // Zuma-style rounds should begin with the chain still fully outside the
+    // visible track, then roll in quickly to the normal opening state. The
+    // target still leaves a small portion of the tail off-screen so the chain
+    // does not look artificially "pre-laid" on the path.
+    const targetHeadS =
+      (this.chain.length - 1) * BALL_SPACING + CHAIN_ENTRY_TAIL_S;
+    this.chainHeadS = CHAIN_ENTRY_START_HEAD_S;
+    this.chainIntro = {
+      targetHeadS,
+    };
     this.splitState = null;
     this.pendingMatchChecks = [];
     this.syncChainPositions();
@@ -305,6 +318,7 @@ class ZumaGame {
     this.recentCombo = null;
     this.bestCombo = 0;
     this.mergeSettle = null;
+    this.chainIntro = null;
     this.score = 0;
     this.currentPaletteIndex = this.getRandomPaletteIndex();
     this.nextPaletteIndex = this.getRandomPaletteIndex();
@@ -686,7 +700,7 @@ class ZumaGame {
     // conveyor motion without fighting the split closure math.
     this.updateMergeSettle(dt);
     if (!this.splitState) {
-      this.chainHeadS += CHAIN_SPEED * dt * this.getChainSpeedScale();
+      this.advanceChainBaseline(dt);
     }
     // Once the chain is broken, keep the shared baseline still and let the rear
     // segment close the gap only through its own "close" offsets. This avoids
@@ -704,6 +718,22 @@ class ZumaGame {
     if (tailS > this.totalPathLength + EXIT_GAP) {
       this.setGameState("lose");
     }
+  }
+
+  advanceChainBaseline(dt) {
+    if (this.chainIntro) {
+      // The first few seconds of a round are a dedicated entrance phase: the
+      // chain should visibly roll in from off-board before it settles into the
+      // normal conveyor pace.
+      this.chainHeadS += CHAIN_ENTRY_SPEED * dt;
+      if (this.chainHeadS >= this.chainIntro.targetHeadS) {
+        this.chainHeadS = this.chainIntro.targetHeadS;
+        this.chainIntro = null;
+      }
+      return;
+    }
+
+    this.chainHeadS += CHAIN_SPEED * dt * this.getChainSpeedScale();
   }
 
   // After a seam rejoins, briefly hold back the shared conveyor so the merge
