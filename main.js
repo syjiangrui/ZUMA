@@ -43,6 +43,10 @@ const SPLIT_MERGE_EPSILON = 1.2;
 const MERGE_SETTLE_DURATION = 0.085;
 const MERGE_SETTLE_MIN_SPEED_SCALE = 0.34;
 const TAU = Math.PI * 2;
+// Every palette is paired with one temple glyph family. Color remains the
+// fastest match-read signal, while glyph silhouette is there to support the
+// "ancient relic sphere" mood once the player notices the rolling detail.
+const TEMPLE_GLYPH_VARIANTS = ["scarab", "eye", "sun", "mask", "ankh"];
 
 // Programmatic palettes used both for initial chain colors and procedural ball
 // textures. The texture generator later combines these into stripes, arcs and
@@ -261,8 +265,11 @@ class ZumaGame {
   }
 
   createTextures() {
-    this.ballPatterns = BALL_PALETTES.map((palette) =>
-      this.createBallPatternCanvas(palette),
+    this.ballPatterns = BALL_PALETTES.map((palette, index) =>
+      this.createBallPatternCanvas(
+        palette,
+        TEMPLE_GLYPH_VARIANTS[index % TEMPLE_GLYPH_VARIANTS.length],
+      ),
     );
   }
 
@@ -1959,6 +1966,13 @@ class ZumaGame {
   drawBall(ctx, x, y, radius, paletteIndex, rotation, impact = 0) {
     const palette = BALL_PALETTES[paletteIndex];
     const pattern = this.ballPatterns[paletteIndex];
+    // Ball rendering is layered on purpose:
+    // 1. broad stone body
+    // 2. rolling symbol belt
+    // 3. matte re-shading to push the belt back into the sphere
+    // 4. restrained wear highlight
+    // Keeping these layers separate makes Phase 3 material tuning practical:
+    // we can change "stone", "carving", and "polish" independently.
     // impact slightly enlarges the ball and adds an aura so collision / seam
     // events read even before we introduce particles.
     const scale = 1 + impact * 0.08;
@@ -1978,6 +1992,9 @@ class ZumaGame {
       ctx.fill();
     }
 
+    // Broad, low-contrast body lighting reads closer to carved stone than to a
+    // glossy marble. The dark edge is delayed so the ball stays readable on a
+    // phone even after the belt texture and extra shading are composited.
     const body = ctx.createRadialGradient(
       -radius * 0.32,
       -radius * 0.4,
@@ -1987,7 +2004,8 @@ class ZumaGame {
       radius,
     );
     body.addColorStop(0, palette.bright);
-    body.addColorStop(0.46, palette.base);
+    body.addColorStop(0.54, palette.base);
+    body.addColorStop(0.84, palette.base);
     body.addColorStop(1, palette.dark);
     ctx.fillStyle = body;
     ctx.beginPath();
@@ -1998,31 +2016,116 @@ class ZumaGame {
     ctx.beginPath();
     ctx.arc(0, 0, radius, 0, TAU);
     ctx.clip();
-    ctx.rotate(rotation);
-    ctx.drawImage(pattern, -radius, -radius, radius * 2, radius * 2);
+    // The belt layer is clipped inside the sphere before any matte shading is
+    // re-applied. That order matters: the texture should inherit the ball's
+    // stone volume, not flatten it.
+    this.drawRollingBandTexture(ctx, pattern, radius, rotation);
     ctx.restore();
 
-    ctx.strokeStyle = "rgba(255, 248, 227, 0.24)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(0, 0, radius - 1, 0, TAU);
-    ctx.stroke();
-
-    const highlight = ctx.createRadialGradient(
-      -radius * 0.45,
-      -radius * 0.5,
-      1,
-      -radius * 0.45,
-      -radius * 0.5,
-      radius * 0.8,
+    // Re-darken the lower/right side after the moving belt has been added. This
+    // keeps the texture from reading as a flat sticker when the ball rotates.
+    const matteShade = ctx.createRadialGradient(
+      radius * 0.34,
+      radius * 0.42,
+      radius * 0.12,
+      radius * 0.24,
+      radius * 0.32,
+      radius * 1.08,
     );
-    highlight.addColorStop(0, "rgba(255, 255, 255, 0.62)");
-    highlight.addColorStop(0.4, "rgba(255, 255, 255, 0.16)");
-    highlight.addColorStop(1, "rgba(255, 255, 255, 0)");
-    ctx.fillStyle = highlight;
+    matteShade.addColorStop(0, "rgba(58, 40, 26, 0.01)");
+    matteShade.addColorStop(0.5, "rgba(58, 40, 26, 0.05)");
+    matteShade.addColorStop(1, "rgba(58, 40, 26, 0.1)");
+    ctx.fillStyle = matteShade;
     ctx.beginPath();
     ctx.arc(0, 0, radius, 0, TAU);
     ctx.fill();
+
+    ctx.strokeStyle = "rgba(122, 96, 68, 0.18)";
+    ctx.lineWidth = 1.15;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius - 0.8, 0, TAU);
+    ctx.stroke();
+
+    // This is not a sharp specular highlight. It is a warm worn area so the
+    // ball still feels like polished stone rather than glass.
+    const wornBloom = ctx.createRadialGradient(
+      -radius * 0.34,
+      -radius * 0.42,
+      radius * 0.02,
+      -radius * 0.34,
+      -radius * 0.42,
+      radius * 0.68,
+    );
+    wornBloom.addColorStop(0, "rgba(252, 236, 192, 0.3)");
+    wornBloom.addColorStop(0.38, "rgba(252, 236, 192, 0.16)");
+    wornBloom.addColorStop(1, "rgba(252, 236, 192, 0)");
+    ctx.fillStyle = wornBloom;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, TAU);
+    ctx.fill();
+
+    // A short warm wear mark reads more like polished stone than a full glossy rim.
+    ctx.strokeStyle = "rgba(234, 206, 144, 0.16)";
+    ctx.lineWidth = 1.1;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius - 1.7, -2.48, -1.12);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  drawRollingBandTexture(ctx, pattern, radius, rotation) {
+    const sourceWidth = pattern.width;
+    const sourceHeight = pattern.height;
+    const sourceY = sourceHeight * 0.18;
+    const sourceH = sourceHeight * 0.64;
+    const bandWidth = radius * 2.3;
+    const bandHeight = radius * 1.42;
+    const offset = (((rotation / TAU) % 1 + 1) % 1) * bandWidth;
+
+    // We intentionally fake only the equatorial part of the sphere instead of
+    // trying to project a full texture map over the whole ball. That earlier
+    // approach looked mathematically clever but visually wrong: it stretched the
+    // center and made the emblem read like a distorted front decal. The current
+    // belt model gives up some physical correctness in exchange for a much
+    // cleaner "this carved band is rotating around a stone sphere" read.
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(0, 0, radius * 0.98, radius * 0.8, 0, 0, TAU);
+    ctx.clip();
+
+    for (let dx = -bandWidth - offset; dx < radius * 1.2; dx += bandWidth) {
+      ctx.drawImage(
+        pattern,
+        0,
+        sourceY,
+        sourceWidth,
+        sourceH,
+        dx,
+        -bandHeight * 0.5,
+        bandWidth,
+        bandHeight,
+      );
+    }
+
+    // Extra top/bottom and side shading compresses the belt back into the body.
+    // Without these passes, the moving band looks like a flat strip scrolling
+    // across the circle instead of a wrapped ring carved into a sphere.
+    const topBottomShade = ctx.createLinearGradient(0, -radius * 0.82, 0, radius * 0.82);
+    topBottomShade.addColorStop(0, "rgba(27, 18, 12, 0.22)");
+    topBottomShade.addColorStop(0.16, "rgba(19, 12, 8, 0)");
+    topBottomShade.addColorStop(0.84, "rgba(19, 12, 8, 0)");
+    topBottomShade.addColorStop(1, "rgba(27, 18, 12, 0.24)");
+    ctx.fillStyle = topBottomShade;
+    ctx.fillRect(-radius, -radius, radius * 2, radius * 2);
+
+    const sideShade = ctx.createLinearGradient(-radius, 0, radius, 0);
+    sideShade.addColorStop(0, "rgba(34, 22, 14, 0.17)");
+    sideShade.addColorStop(0.16, "rgba(26, 15, 9, 0)");
+    sideShade.addColorStop(0.84, "rgba(26, 15, 9, 0)");
+    sideShade.addColorStop(1, "rgba(34, 22, 14, 0.18)");
+    ctx.fillStyle = sideShade;
+    ctx.fillRect(-radius, -radius, radius * 2, radius * 2);
 
     ctx.restore();
   }
@@ -2133,69 +2236,284 @@ class ZumaGame {
     };
   }
 
-  createBallPatternCanvas(palette) {
+  // Generate a horizontally tileable source texture for the rolling belt around
+  // each stone ball. This is the current compromise after several experiments:
+  // not a tiny center logo, not a fake full-sphere UV, but a broad symbolic
+  // band that rotates cleanly on mobile screens.
+  createBallPatternCanvas(palette, glyphVariant) {
     const size = 128;
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext("2d");
 
-    // The texture is intentionally directional so rotation stays readable, but
-    // Phase 3 pushes it away from "flat stripes" and closer to polished mineral
-    // or ritual jewel surfaces: broad bands, ring engravings and a few bright
-    // facet cuts.
-    ctx.translate(size / 2, size / 2);
-    ctx.fillStyle = "rgba(255, 255, 255, 0)";
-    ctx.fillRect(-size / 2, -size / 2, size, size);
+    // Build the texture as a circumferential band source. The renderer later
+    // scrolls the middle belt around the ball. This preserves a wrapped rolling
+    // read without bringing back the center-stretch artifact from the earlier
+    // pseudo-3D full-sphere projection.
+    ctx.fillStyle = "rgba(0, 0, 0, 0)";
+    ctx.fillRect(0, 0, size, size);
 
-    ctx.rotate(-Math.PI / 6);
-    for (let i = -3; i <= 3; i += 1) {
+    const mineral = ctx.createLinearGradient(0, 0, 0, size);
+    mineral.addColorStop(0, `${palette.dark}36`);
+    mineral.addColorStop(0.24, `${palette.stripeDark.slice(0, -4)}0.18)`);
+    mineral.addColorStop(0.5, `${palette.base}14`);
+    mineral.addColorStop(0.74, `${palette.stripeLight.slice(0, -4)}0.14)`);
+    mineral.addColorStop(1, `${palette.dark}34`);
+    ctx.fillStyle = mineral;
+    ctx.fillRect(0, 0, size, size);
+
+    // Keep the mineral veining horizontally tile-safe. Any strong diagonal or
+    // one-sided gradient makes the seam readable once the band loops around.
+    ctx.globalAlpha = 0.18;
+    for (let i = -2; i <= 2; i += 1) {
       ctx.fillStyle = i % 2 === 0 ? palette.stripeDark : palette.stripeLight;
-      ctx.fillRect(-size * 0.82, i * 18 - 6, size * 1.64, 12);
+      ctx.fillRect(0, size * 0.5 + i * 20 - 4, size, 8);
     }
+    ctx.globalAlpha = 1;
 
-    ctx.rotate(Math.PI / 5);
-    ctx.fillStyle = `${palette.accent}2c`;
-    ctx.fillRect(-size * 0.7, -6, size * 1.4, 8);
+    const band = ctx.createLinearGradient(0, size * 0.22, 0, size * 0.78);
+    band.addColorStop(0, `${palette.dark}16`);
+    band.addColorStop(0.2, `${palette.accent}28`);
+    band.addColorStop(0.5, `${palette.stripeLight.slice(0, -4)}0.16)`);
+    band.addColorStop(0.8, `${palette.accent}22`);
+    band.addColorStop(1, `${palette.dark}16`);
+    ctx.fillStyle = band;
+    ctx.fillRect(0, size * 0.22, size, size * 0.56);
 
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.translate(size / 2, size / 2);
-
-    ctx.strokeStyle = `${palette.accent}96`;
-    ctx.lineWidth = 9;
+    ctx.strokeStyle = `${palette.dark}54`;
+    ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.arc(0, 0, size * 0.2, -Math.PI * 0.92, Math.PI * 0.12);
+    ctx.moveTo(0, size * 0.28);
+    ctx.lineTo(size, size * 0.28);
+    ctx.moveTo(0, size * 0.72);
+    ctx.lineTo(size, size * 0.72);
     ctx.stroke();
 
-    ctx.strokeStyle = `${palette.dark}aa`;
-    ctx.lineWidth = 11;
+    ctx.strokeStyle = `${palette.accent}44`;
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(12, -8, size * 0.32, Math.PI * 0.08, Math.PI * 1.14);
+    ctx.moveTo(0, size * 0.39);
+    ctx.lineTo(size, size * 0.39);
+    ctx.moveTo(0, size * 0.61);
+    ctx.lineTo(size, size * 0.61);
     ctx.stroke();
 
-    ctx.strokeStyle = `${palette.stripeLight.slice(0, -4)}0.36)`;
-    ctx.lineWidth = 5;
-    ctx.beginPath();
-    ctx.arc(-8, 10, size * 0.16, Math.PI * 0.92, Math.PI * 1.84);
-    ctx.stroke();
+    // Make the glyph span most of the visible front hemisphere. The edge echoes
+    // bleed across the seam so the pattern reads as a wrapped symbol belt instead
+    // of a small logo sitting on top of the sphere.
+    ctx.save();
+    ctx.globalAlpha = 0.28;
+    this.drawTempleGlyph(ctx, glyphVariant, palette, size, {
+      x: -size * 0.5,
+      y: size * 0.5,
+      scale: 1.78,
+      medallion: false,
+    });
+    this.drawTempleGlyph(ctx, glyphVariant, palette, size, {
+      x: size * 1.5,
+      y: size * 0.5,
+      scale: 1.78,
+      medallion: false,
+    });
+    ctx.restore();
 
-    ctx.fillStyle = `${palette.accent}66`;
-    const facets = [
-      [-18, -18, 12, 8],
-      [14, -6, 11, 7],
-      [-6, 16, 10, 7],
-    ];
-    for (const [x, y, w, h] of facets) {
-      ctx.beginPath();
-      ctx.moveTo(x, y - h);
-      ctx.lineTo(x + w, y);
-      ctx.lineTo(x, y + h);
-      ctx.lineTo(x - w, y);
-      ctx.closePath();
-      ctx.fill();
-    }
+    this.drawTempleGlyph(ctx, glyphVariant, palette, size, {
+      x: size * 0.5,
+      y: size * 0.5,
+      scale: 1.78,
+      medallion: false,
+    });
+
+    this.makeHorizontalTextureSeamless(ctx, size, size, 10);
 
     return canvas;
+  }
+
+  // Blend both horizontal edges after drawing. Hand-built motifs are rarely
+  // perfectly seamless on their own; this post-pass prevents a bright/dark jump
+  // when the belt completes a full rotation.
+  makeHorizontalTextureSeamless(ctx, width, height, seamWidth) {
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const original = new Uint8ClampedArray(imageData.data);
+
+    for (let x = 0; x < seamWidth; x += 1) {
+      const leftX = x;
+      const rightX = width - seamWidth + x;
+
+      for (let y = 0; y < height; y += 1) {
+        const leftIndex = (y * width + leftX) * 4;
+        const rightIndex = (y * width + rightX) * 4;
+
+        for (let channel = 0; channel < 4; channel += 1) {
+          const mixed = Math.round(
+            (original[leftIndex + channel] + original[rightIndex + channel]) * 0.5,
+          );
+          imageData.data[leftIndex + channel] = mixed;
+          imageData.data[rightIndex + channel] = mixed;
+        }
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+  }
+
+  // Draw a single glyph family. These marks are intentionally softer than HUD
+  // icons: on the moving ball they should read like carved ornament lines in
+  // stone, not like sharp vector logos pasted on the surface.
+  drawTempleGlyph(ctx, variant, palette, size, options = {}) {
+    const {
+      x = 0,
+      y = 0,
+      scale = 1,
+      medallion = true,
+    } = options;
+
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+
+    const bronzeFill = "rgba(223, 191, 112, 0.28)";
+    const bronzeStroke = "rgba(104, 73, 35, 0.54)";
+    const paleStroke = "rgba(249, 236, 190, 0.12)";
+
+    if (medallion) {
+      // Shared medallion base is useful for HUD-scale rendering, but inside the
+      // rolling belt it reads like a flat coin sticker, so callers can disable it.
+      ctx.fillStyle = "rgba(43, 31, 17, 0.28)";
+      ctx.beginPath();
+      ctx.arc(0, 0, 19, 0, TAU);
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(224, 191, 112, 0.24)";
+      ctx.lineWidth = 2.6;
+      ctx.beginPath();
+      ctx.arc(0, 0, 19, 0, TAU);
+      ctx.stroke();
+    }
+
+    if (variant === "scarab") {
+      ctx.fillStyle = bronzeFill;
+      ctx.beginPath();
+      ctx.ellipse(0, 2, 12, 16, 0, 0, TAU);
+      ctx.fill();
+
+      ctx.fillStyle = "rgba(238, 212, 141, 0.2)";
+      ctx.beginPath();
+      ctx.ellipse(-12, 0, 10, 7, -0.38, 0, TAU);
+      ctx.ellipse(12, 0, 10, 7, 0.38, 0, TAU);
+      ctx.fill();
+
+      ctx.strokeStyle = bronzeStroke;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.ellipse(0, 2, 12, 16, 0, 0, TAU);
+      ctx.moveTo(0, -10);
+      ctx.lineTo(0, 14);
+      ctx.moveTo(-16, -4);
+      ctx.quadraticCurveTo(-8, -14, 0, -10);
+      ctx.moveTo(16, -4);
+      ctx.quadraticCurveTo(8, -14, 0, -10);
+      ctx.stroke();
+    } else if (variant === "eye") {
+      ctx.strokeStyle = bronzeStroke;
+      ctx.lineWidth = 3.3;
+      ctx.beginPath();
+      ctx.moveTo(-22, 0);
+      ctx.quadraticCurveTo(0, -16, 22, 0);
+      ctx.quadraticCurveTo(0, 16, -22, 0);
+      ctx.stroke();
+
+      ctx.fillStyle = bronzeFill;
+      ctx.beginPath();
+      ctx.arc(0, 0, 7, 0, TAU);
+      ctx.fill();
+
+      ctx.strokeStyle = paleStroke;
+      ctx.lineWidth = 1.35;
+      ctx.beginPath();
+      ctx.arc(0, 0, 13, -0.9, 0.9);
+      ctx.stroke();
+
+      ctx.strokeStyle = bronzeStroke;
+      ctx.lineWidth = 2.1;
+      ctx.beginPath();
+      ctx.moveTo(-6, 10);
+      ctx.quadraticCurveTo(-12, 18, -20, 19);
+      ctx.moveTo(6, 9);
+      ctx.quadraticCurveTo(14, 12, 20, 8);
+      ctx.stroke();
+    } else if (variant === "sun") {
+      ctx.fillStyle = bronzeFill;
+      ctx.beginPath();
+      ctx.arc(0, 0, 14, 0, TAU);
+      ctx.fill();
+
+      ctx.strokeStyle = bronzeStroke;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, 14, 0, TAU);
+      ctx.stroke();
+
+      ctx.strokeStyle = "rgba(240, 214, 133, 0.26)";
+      ctx.lineWidth = 2.1;
+      for (let i = 0; i < 8; i += 1) {
+        const angle = (TAU / 8) * i + Math.PI / 8;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(angle) * 20, Math.sin(angle) * 20);
+        ctx.lineTo(Math.cos(angle) * 28, Math.sin(angle) * 28);
+        ctx.stroke();
+      }
+    } else if (variant === "mask") {
+      ctx.fillStyle = bronzeFill;
+      ctx.beginPath();
+      ctx.moveTo(0, -18);
+      ctx.quadraticCurveTo(14, -15, 16, -2);
+      ctx.quadraticCurveTo(18, 18, 0, 22);
+      ctx.quadraticCurveTo(-18, 18, -16, -2);
+      ctx.quadraticCurveTo(-14, -15, 0, -18);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = bronzeStroke;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(-8, -4);
+      ctx.lineTo(-2, -1);
+      ctx.moveTo(8, -4);
+      ctx.lineTo(2, -1);
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, 10);
+      ctx.moveTo(-7, 14);
+      ctx.quadraticCurveTo(0, 18, 7, 14);
+      ctx.stroke();
+    } else if (variant === "ankh") {
+      ctx.strokeStyle = bronzeStroke;
+      ctx.lineWidth = 3.3;
+      ctx.beginPath();
+      ctx.moveTo(0, -22);
+      ctx.quadraticCurveTo(-11, -21, -11, -9);
+      ctx.quadraticCurveTo(-11, 2, 0, 4);
+      ctx.quadraticCurveTo(11, 2, 11, -9);
+      ctx.quadraticCurveTo(11, -21, 0, -22);
+      ctx.moveTo(0, 4);
+      ctx.lineTo(0, 23);
+      ctx.moveTo(-13, 12);
+      ctx.lineTo(13, 12);
+      ctx.stroke();
+
+      ctx.strokeStyle = paleStroke;
+      ctx.lineWidth = 1.35;
+      ctx.beginPath();
+      ctx.arc(0, -8, 8, Math.PI * 0.9, Math.PI * 2.1);
+      ctx.stroke();
+    }
+
+    ctx.restore();
   }
 }
 

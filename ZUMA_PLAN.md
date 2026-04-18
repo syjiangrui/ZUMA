@@ -778,3 +778,37 @@ Phase 3 的核心不是继续加玩法规则，而是把当前已经成立的一
 说明：
 
 - 这是长期并行任务，不要求在 Phase 3 某个固定时间点“彻底完成”
+
+## 17. 2026-04-18 Phase 3 / G Current Update
+
+This addendum records the current visual-direction decisions without rewriting the older planning sections.
+
+Current status:
+- `Phase 3 / G` is in progress.
+- Path geometry is intentionally frozen for now: off-screen entry plus Archimedean spiral remains the baseline.
+- The goal is no longer "add any texture"; it is "make the whole board read as one temple-material system".
+
+What has already changed in code:
+- Shooter, HUD panels, restart button and end cards are moving toward a stone altar / bronze trim look.
+- The track has been simplified toward a carved groove instead of a heavy framed pipe.
+- Balls now use a stone-body render plus a moving symbolic belt instead of the old flat rotating badge.
+- The belt texture is horizontally tileable and includes a seam-blend post-pass to reduce rotation seam flashes.
+
+Important rendering decision:
+- We tried a pseudo full-sphere texture projection and rejected it.
+- Reason: it produced center stretching and a "sticker on the front" read.
+- The current implementation intentionally uses a rolling equatorial band because it is less uncanny and more readable on a phone-sized ball.
+
+Current goals inside work package G:
+1. Keep refining stone-ball material so it feels like carved/polished relic spheres rather than glass marbles.
+2. Unify track, HUD, shooter and ball material language.
+3. Avoid large structural rendering experiments while the current direction is converging.
+
+What is still not the focus yet:
+- Particle-heavy polish (`H`)
+- Full HUD skin pass (`I`)
+- Audio (`J`)
+- Performance tuning (`K`)
+
+Next expected move after G is stable:
+- Start `H` for hit / match / merge feedback effects.

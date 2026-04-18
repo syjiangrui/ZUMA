@@ -785,3 +785,43 @@ rotation = s / radius
 **当前系统的核心不是碰撞本身，而是“路径距离 + 临时位移 + 单断口状态机”。**
 
 这也是后续继续扩展这个项目时最不能轻易破坏的基础。
+
+## 18. 2026-04-18 Ball Material And Rolling Texture Update
+
+This section supplements the earlier rendering notes with the current Phase 3 implementation.
+
+### Current Ball Rendering Pipeline
+The ball is now drawn in four explicit layers:
+1. Broad stone-body gradient.
+2. Rolling equatorial symbol band.
+3. Matte re-shading to push the band back into the sphere volume.
+4. Small warm wear highlight instead of a glass-like specular spot.
+
+This pipeline lives primarily in:
+- `drawBall()`
+- `drawRollingBandTexture()`
+- `createBallPatternCanvas()`
+- `drawTempleGlyph()`
+- `makeHorizontalTextureSeamless()`
+
+### Why The Renderer No Longer Uses Pseudo Full-Sphere Projection
+An earlier experiment tried to project a full texture map over the visible sphere. In practice it caused three recurring issues:
+- the center symbol stretched unnaturally,
+- the front-facing read looked like a sticker glued to the ball,
+- the seam became easier to notice during rotation.
+
+The current renderer deliberately models only a rolling equatorial belt. This is less physically correct, but visually more stable and more readable at the current mobile ball size.
+
+### Current Texture Constraints
+The belt source texture must satisfy all of the following:
+- horizontal tiling without obvious left/right value shifts,
+- a dominant front glyph that remains legible during rotation,
+- lower-contrast ornament lines so the motif reads as carved stone instead of UI iconography,
+- post-pass seam blending to damp residual edge mismatch.
+
+### Current Known Tradeoff
+The current belt approach is the preferred compromise for now:
+- pros: cleaner rolling read, fewer uncanny distortions, easier mobile readability,
+- cons: it is a visual simulation of wrapped stone ornament, not a true full-sphere texture projection.
+
+Future material work should continue on top of this model unless a later rewrite introduces a genuinely better sphere-mapping solution.
