@@ -1804,8 +1804,8 @@ class ZumaGame {
     // --- 4. Cached layer: upper jaw + eyes (overlaps ball top) ---
     ctx.drawImage(this.frogCacheFront, -cx, -cy);
 
-    // --- 5. Live next-ball preview in belly socket ---
-    this.drawBall(ctx, 0, 32, BALL_RADIUS - 1, this.nextPaletteIndex, -angle * 1.5);
+    // --- 5. Live current-ball echo in belly socket (matches mouth ball) ---
+    this.drawBall(ctx, 0, 32, BALL_RADIUS - 1, this.currentPaletteIndex, -angle * 1.5);
 
     ctx.restore();
   }
