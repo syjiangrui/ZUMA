@@ -418,9 +418,9 @@ class ZumaGame {
   // Split into "behind the ball" and "in front of the ball" layers so the
   // upper jaw still overlaps the held ball at runtime.
   createFrogCache() {
-    const size = 140;
+    const size = 170;
     const cx = size / 2;
-    const cy = size / 2 + 4; // slight downward bias to center the body
+    const cy = size / 2 + 6; // bias downward so the taller head fits
 
     // --- Layer 1: body + lower jaw + mouth cavity + belly socket ---
     const behind = document.createElement("canvas");
@@ -1789,11 +1789,15 @@ class ZumaGame {
     // --- 1. Ground shadow (stays flat, does not rotate) ---
     ctx.fillStyle = "rgba(18, 21, 24, 0.40)";
     ctx.beginPath();
-    ctx.ellipse(0, 46, 64, 16, 0, 0, TAU);
+    ctx.ellipse(0, 42, 56, 14, 0, 0, TAU);
     ctx.fill();
 
     // --- Rotate entire frog to face the aim direction ---
     ctx.rotate(angle + Math.PI * 0.5);
+
+    // --- Scale down the frog (drawn at large size for detail, shrunk here) ---
+    const frogScale = 0.78;
+    ctx.scale(frogScale, frogScale);
 
     // --- 2. Cached layer: body + lower jaw + mouth cavity + belly socket ---
     ctx.drawImage(this.frogCacheBehind, -cx, -cy);
@@ -1810,63 +1814,88 @@ class ZumaGame {
     ctx.restore();
   }
 
-  // Squat stone-frog body. Bezier curves define the silhouette; filled with a
-  // warm-stone radial gradient and decorated with carved bands + bronze trim.
+  // Squat stone-frog body. Green-stone Mayan idol silhouette filled with a
+  // moss-toned radial gradient and decorated with carved bands + gold trim.
   drawFrogBody(ctx) {
-    // Main body silhouette — a squat toad shape
+    // Main body silhouette — squat, wide toad shape
     ctx.beginPath();
-    ctx.moveTo(0, -28);
-    // right shoulder → haunch
-    ctx.bezierCurveTo(26, -28, 50, -14, 52, 8);
-    ctx.bezierCurveTo(54, 24, 44, 40, 28, 44);
-    // belly bottom
-    ctx.lineTo(-28, 44);
+    ctx.moveTo(0, -24);
+    // right shoulder → haunch (wider, rounder curves)
+    ctx.bezierCurveTo(30, -26, 54, -10, 56, 10);
+    ctx.bezierCurveTo(56, 28, 46, 42, 34, 46);
+    // belly bottom (wider)
+    ctx.lineTo(-34, 46);
     // left haunch → shoulder
-    ctx.bezierCurveTo(-44, 40, -54, 24, -52, 8);
-    ctx.bezierCurveTo(-50, -14, -26, -28, 0, -28);
+    ctx.bezierCurveTo(-46, 42, -56, 28, -56, 10);
+    ctx.bezierCurveTo(-54, -10, -30, -26, 0, -24);
     ctx.closePath();
 
-    const bodyGrad = ctx.createRadialGradient(-8, 4, 6, 0, 8, 56);
-    bodyGrad.addColorStop(0, "#8a8274");
-    bodyGrad.addColorStop(0.5, "#6b645a");
-    bodyGrad.addColorStop(1, "#44403a");
+    const bodyGrad = ctx.createRadialGradient(-8, 6, 6, 0, 10, 58);
+    bodyGrad.addColorStop(0, "#6b8a6e");
+    bodyGrad.addColorStop(0.5, "#4a6b4e");
+    bodyGrad.addColorStop(1, "#2e4430");
     ctx.fillStyle = bodyGrad;
     ctx.fill();
-    ctx.strokeStyle = "rgba(40, 34, 26, 0.35)";
+    ctx.strokeStyle = "rgba(20, 36, 22, 0.4)";
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
+    // Head crest — three small triangular ridges on top (Mayan idol feature)
+    ctx.fillStyle = "rgba(82, 120, 84, 0.7)";
+    for (const ox of [-14, 0, 14]) {
+      ctx.beginPath();
+      ctx.moveTo(ox, -24);
+      ctx.lineTo(ox - 4, -18);
+      ctx.lineTo(ox + 4, -18);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.strokeStyle = "rgba(20, 36, 22, 0.3)";
+    ctx.lineWidth = 0.8;
+    for (const ox of [-14, 0, 14]) {
+      ctx.beginPath();
+      ctx.moveTo(ox, -24);
+      ctx.lineTo(ox - 4, -18);
+      ctx.lineTo(ox + 4, -18);
+      ctx.closePath();
+      ctx.stroke();
+    }
+
     // Carved horizontal bands across the chest (Mayan decorative lines)
-    ctx.strokeStyle = "rgba(30, 24, 18, 0.22)";
-    ctx.lineWidth = 1.8;
+    ctx.strokeStyle = "rgba(16, 30, 18, 0.28)";
+    ctx.lineWidth = 2.2;
     ctx.beginPath();
-    ctx.moveTo(-30, 14);
-    ctx.quadraticCurveTo(0, 18, 30, 14);
+    ctx.moveTo(-36, 14);
+    ctx.quadraticCurveTo(0, 19, 36, 14);
     ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(-24, 24);
-    ctx.quadraticCurveTo(0, 27, 24, 24);
+    ctx.moveTo(-30, 24);
+    ctx.quadraticCurveTo(0, 28, 30, 24);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-22, 33);
+    ctx.quadraticCurveTo(0, 36, 22, 33);
     ctx.stroke();
 
-    // Bronze ring at the base (sitting on altar)
+    // Gold ring at the base (sitting on altar)
     ctx.beginPath();
-    ctx.ellipse(0, 44, 32, 7, 0, 0, TAU);
-    ctx.strokeStyle = "rgba(180, 148, 60, 0.55)";
+    ctx.ellipse(0, 46, 36, 7, 0, 0, TAU);
+    ctx.strokeStyle = "rgba(200, 170, 50, 0.6)";
     ctx.lineWidth = 2.5;
     ctx.stroke();
 
-    // Front limbs — small stone bumps on each side
+    // Front limbs — stone bumps on each side
     for (let side = -1; side <= 1; side += 2) {
       ctx.beginPath();
-      ctx.ellipse(side * 42, 30, 11, 7, side * 0.3, 0, TAU);
+      ctx.ellipse(side * 46, 32, 13, 8, side * 0.3, 0, TAU);
       const limbGrad = ctx.createRadialGradient(
-        side * 40, 28, 2, side * 42, 30, 11,
+        side * 44, 30, 2, side * 46, 32, 13,
       );
-      limbGrad.addColorStop(0, "#7a7468");
-      limbGrad.addColorStop(1, "#4d4840");
+      limbGrad.addColorStop(0, "#6a826c");
+      limbGrad.addColorStop(1, "#3a5038");
       ctx.fillStyle = limbGrad;
       ctx.fill();
-      ctx.strokeStyle = "rgba(40, 34, 26, 0.25)";
+      ctx.strokeStyle = "rgba(20, 36, 22, 0.3)";
       ctx.lineWidth = 1;
       ctx.stroke();
     }
@@ -1874,9 +1903,9 @@ class ZumaGame {
 
   // Lower jaw + mouth cavity — drawn BEHIND the ball in the frog cache.
   drawFrogJawBehind(ctx) {
-    const headLen = 52;
-    const headW = 28;
-    const mouthW = 18;
+    const headLen = 48;
+    const headW = 34;
+    const mouthW = 24;
     const ballDist = 34;
 
     ctx.beginPath();
@@ -1887,26 +1916,26 @@ class ZumaGame {
     ctx.closePath();
 
     const jawGrad = ctx.createLinearGradient(0, 4, 0, -headLen);
-    jawGrad.addColorStop(0, "#6b6458");
-    jawGrad.addColorStop(1, "#524d44");
+    jawGrad.addColorStop(0, "#5a7a5c");
+    jawGrad.addColorStop(1, "#3a5a3c");
     ctx.fillStyle = jawGrad;
     ctx.fill();
-    ctx.strokeStyle = "rgba(40, 34, 26, 0.3)";
+    ctx.strokeStyle = "rgba(20, 36, 22, 0.35)";
     ctx.lineWidth = 1.2;
     ctx.stroke();
 
-    // Mouth cavity
+    // Mouth cavity (wider to match new mouthW)
     ctx.beginPath();
     ctx.ellipse(0, -ballDist, mouthW - 3, 14, 0, 0, TAU);
-    ctx.fillStyle = "#16110e";
+    ctx.fillStyle = "#0e1a10";
     ctx.fill();
   }
 
-  // Upper jaw / snout + nostrils + bronze accents — drawn IN FRONT of the ball.
+  // Upper jaw / snout + nostrils + gold accents — drawn IN FRONT of the ball.
   drawFrogJawFront(ctx) {
-    const headLen = 52;
-    const headW = 28;
-    const mouthW = 18;
+    const headLen = 48;
+    const headW = 34;
+    const mouthW = 24;
 
     ctx.beginPath();
     ctx.moveTo(-headW + 2, 2);
@@ -1917,27 +1946,27 @@ class ZumaGame {
     ctx.closePath();
 
     const snoutGrad = ctx.createLinearGradient(0, 2, 0, -headLen);
-    snoutGrad.addColorStop(0, "#7a7264");
-    snoutGrad.addColorStop(0.6, "#625c52");
-    snoutGrad.addColorStop(1, "#6e6860");
+    snoutGrad.addColorStop(0, "#6a8668");
+    snoutGrad.addColorStop(0.6, "#4e6e50");
+    snoutGrad.addColorStop(1, "#5a7a5c");
     ctx.fillStyle = snoutGrad;
     ctx.fill();
-    ctx.strokeStyle = "rgba(40, 34, 26, 0.28)";
+    ctx.strokeStyle = "rgba(20, 36, 22, 0.32)";
     ctx.lineWidth = 1.2;
     ctx.stroke();
 
     // Nostrils
-    ctx.fillStyle = "#2a2420";
+    ctx.fillStyle = "#1a2c1c";
     ctx.beginPath();
-    ctx.arc(-7, -headLen + 6, 2.2, 0, TAU);
+    ctx.arc(-9, -headLen + 6, 2.5, 0, TAU);
     ctx.fill();
     ctx.beginPath();
-    ctx.arc(7, -headLen + 6, 2.2, 0, TAU);
+    ctx.arc(9, -headLen + 6, 2.5, 0, TAU);
     ctx.fill();
 
-    // Bronze accent lines along jaw edges
-    ctx.strokeStyle = "rgba(196, 163, 62, 0.38)";
-    ctx.lineWidth = 1.4;
+    // Gold accent lines along jaw edges
+    ctx.strokeStyle = "rgba(210, 178, 50, 0.45)";
+    ctx.lineWidth = 1.6;
     ctx.beginPath();
     ctx.moveTo(-headW + 5, 0);
     ctx.quadraticCurveTo(-mouthW + 2, -headLen + 14, -mouthW + 6, -headLen + 4);
@@ -1946,67 +1975,83 @@ class ZumaGame {
     ctx.moveTo(headW - 5, 0);
     ctx.quadraticCurveTo(mouthW - 2, -headLen + 14, mouthW - 6, -headLen + 4);
     ctx.stroke();
+
+    // Mayan zigzag pattern along snout bridge
+    ctx.strokeStyle = "rgba(200, 170, 50, 0.3)";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(-12, -headLen + 16);
+    for (let i = 0; i < 4; i++) {
+      const bx = -8 + i * 5;
+      ctx.lineTo(bx, -headLen + (i % 2 === 0 ? 13 : 19));
+    }
+    ctx.stroke();
   }
 
   // Belly socket only (no ball) — baked into the frog cache.
   drawFrogBellySocket(ctx) {
     ctx.beginPath();
     ctx.arc(0, 32, BALL_RADIUS + 3, 0, TAU);
-    ctx.fillStyle = "#2a2520";
+    ctx.fillStyle = "#1a2c1c";
     ctx.fill();
-    ctx.strokeStyle = "rgba(180, 148, 60, 0.45)";
+    ctx.strokeStyle = "rgba(200, 170, 50, 0.5)";
     ctx.lineWidth = 1.8;
     ctx.stroke();
   }
 
   // Stone dome eyes — the most iconic part of the Zuma frog. Each eye is a
-  // raised stone bump with a golden iris ring and a vertical reptilian pupil slit.
+  // large raised stone hemisphere with a warm golden iris and round pupil.
+  // Friendly and calm rather than menacing.
   drawFrogEyes(ctx) {
-    const eyeX = 20;
-    const eyeY = -24;
-    const eyeR = 12;
+    const eyeX = 22;
+    const eyeY = -20;
+    const eyeR = 15;
 
     for (let side = -1; side <= 1; side += 2) {
       const ex = side * eyeX;
 
-      // Eye dome — stone gradient
+      // Eye dome — green-stone gradient
       ctx.beginPath();
       ctx.arc(ex, eyeY, eyeR, 0, TAU);
       const domeGrad = ctx.createRadialGradient(
         ex - 2, eyeY - 3, 2, ex, eyeY, eyeR,
       );
-      domeGrad.addColorStop(0, "#9a9488");
-      domeGrad.addColorStop(0.6, "#6b645a");
-      domeGrad.addColorStop(1, "#4a4540");
+      domeGrad.addColorStop(0, "#7a9a7c");
+      domeGrad.addColorStop(0.6, "#4e6e50");
+      domeGrad.addColorStop(1, "#344a36");
       ctx.fillStyle = domeGrad;
       ctx.fill();
-      ctx.strokeStyle = "rgba(40, 34, 26, 0.3)";
+      ctx.strokeStyle = "rgba(20, 36, 22, 0.3)";
       ctx.lineWidth = 1.2;
       ctx.stroke();
 
-      // Bronze iris ring
+      // Gold iris ring — warm but not harsh
       ctx.beginPath();
-      ctx.arc(ex, eyeY, 7, 0, TAU);
-      ctx.strokeStyle = "rgba(200, 168, 50, 0.72)";
-      ctx.lineWidth = 2.2;
+      ctx.arc(ex, eyeY, 9, 0, TAU);
+      ctx.strokeStyle = "rgba(200, 175, 55, 0.75)";
+      ctx.lineWidth = 2.5;
       ctx.stroke();
 
-      // Dark iris fill
+      // Warm amber iris fill (softer gradient)
       ctx.beginPath();
-      ctx.arc(ex, eyeY, 5.5, 0, TAU);
-      ctx.fillStyle = "#1c1a12";
+      ctx.arc(ex, eyeY, 7.5, 0, TAU);
+      const irisGrad = ctx.createRadialGradient(ex, eyeY, 1, ex, eyeY, 7.5);
+      irisGrad.addColorStop(0, "#d4b840");
+      irisGrad.addColorStop(0.6, "#b89828");
+      irisGrad.addColorStop(1, "#8a7420");
+      ctx.fillStyle = irisGrad;
       ctx.fill();
 
-      // Vertical slit pupil (reptilian)
+      // Round pupil (friendly, not reptilian slit)
       ctx.beginPath();
-      ctx.ellipse(ex, eyeY, 1.8, 5, 0, 0, TAU);
-      ctx.fillStyle = "#0a0a06";
+      ctx.arc(ex, eyeY, 3.5, 0, TAU);
+      ctx.fillStyle = "#12120a";
       ctx.fill();
 
-      // Small specular highlight
+      // Specular highlight
       ctx.beginPath();
-      ctx.arc(ex - 2, eyeY - 2.5, 1.8, 0, TAU);
-      ctx.fillStyle = "rgba(255, 252, 230, 0.30)";
+      ctx.arc(ex - 2, eyeY - 2.5, 2.2, 0, TAU);
+      ctx.fillStyle = "rgba(255, 252, 225, 0.40)";
       ctx.fill();
     }
   }
