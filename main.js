@@ -28,8 +28,10 @@ const AIM_GUIDE_LENGTH = 118;
 // just cosmetic easing constants.
 const INSERT_SETTLE_SPEED = 180;
 const GAP_CLOSE_SPEED = 60;
+const SPLIT_CLOSE_SPEED = 84;
 const IMPACT_FADE_SPEED = 7;
 const INSERT_MATCH_DELAY = 0.11;
+const SPLIT_MERGE_EPSILON = 1.2;
 const TAU = Math.PI * 2;
 
 // Programmatic palettes used both for initial chain colors and procedural ball
@@ -628,11 +630,13 @@ class ZumaGame {
       return;
     }
 
-    this.chainHeadS += CHAIN_SPEED * dt;
-    if (this.splitState) {
-      // 前半段停住的做法不是暂停整条链，而是给前半段施加一个反向位移抵消基础推进。
-      this.splitState.frontOffset -= CHAIN_SPEED * dt;
+    if (!this.splitState) {
+      this.chainHeadS += CHAIN_SPEED * dt;
     }
+    // Once the chain is broken, keep the shared baseline still and let the rear
+    // segment close the gap only through its own "close" offsets. This avoids
+    // the old behavior where rear balls advanced at CHAIN_SPEED + GAP_CLOSE_SPEED
+    // and visibly sprinted into the frozen front segment.
     // Transition updates happen before positions are recomputed so the current
     // frame already reflects insertion / closure progress.
     this.updateBallTransitions(dt);
@@ -665,12 +669,11 @@ class ZumaGame {
 
   syncChainPositions() {
     this.chain.forEach((ball, index) => {
-      // 最终位置 = 整条链基础推进 + 单球过渡位移 + 断链时前半段的冻结位移。
-      const splitOffset =
-        this.splitState && index < this.splitState.index
-          ? this.splitState.frontOffset
-          : 0;
-      ball.s = this.chainHeadS - index * BALL_SPACING + ball.offset + splitOffset;
+      // Final position = shared chain baseline + this ball's temporary offset.
+      // During a split, chainHeadS stays frozen, so the front segment remains
+      // still while the rear segment advances only by closing its negative gap
+      // offsets back toward zero.
+      ball.s = this.chainHeadS - index * BALL_SPACING + ball.offset;
       // Rotation is tied to traveled path distance so textured balls look like
       // they are rolling along the track instead of merely sliding.
       ball.rotation = ball.s / ball.radius;
@@ -680,15 +683,20 @@ class ZumaGame {
   // Ease per-ball temporary offsets back toward zero. The key point here is
   // that different gameplay situations use different speed caps:
   // - insert: make room for a new ball
-  // - close:  rear segment catches up after a removal
+  // - close:  gap closes after a removal
+  //   - ordinary closure keeps the calmer GAP_CLOSE_SPEED
+  //   - split rear chase uses SPLIT_CLOSE_SPEED so it does not feel slower
+  //     than the chain's normal conveyor motion
   // This function should stay purely about offset settling, not about chain
   // topology or match logic.
   updateBallTransitions(dt) {
-    for (const ball of this.chain) {
+    for (const [index, ball] of this.chain.entries()) {
       // offset 只负责过渡动画，不直接决定球链基础前进。
       const speed =
         ball.offsetMode === "close"
-          ? GAP_CLOSE_SPEED
+          ? this.splitState && index >= this.splitState.index
+            ? SPLIT_CLOSE_SPEED
+            : GAP_CLOSE_SPEED
           : ball.offsetMode === "insert"
             ? INSERT_SETTLE_SPEED
             : INSERT_SETTLE_SPEED;
@@ -827,14 +835,20 @@ class ZumaGame {
 
     const frontTail = this.chain[this.splitState.index - 1];
     const rearHead = this.chain[this.splitState.index];
-    // frontExtra is the front segment's extra "frozen" displacement at the
-    // seam. The rear head must at least reach that amount before we can say the
-    // two segments are touching again.
-    const frontExtra = this.splitState.frontOffset + frontTail.offset;
+    // In the current split model the whole chain baseline is frozen, so seam
+    // closure is purely about the rear head catching up to the front tail's
+    // temporary offset at the break.
+    const frontExtra = frontTail.offset;
 
     // 后半段真正追上前半段后，才允许重新并成一条链并触发跨接缝连锁判定。
-    if (rearHead.offset < frontExtra) {
+    if (rearHead.offset < frontExtra - SPLIT_MERGE_EPSILON) {
       return;
+    }
+
+    rearHead.offset = frontExtra;
+    if (Math.abs(rearHead.offset) < 0.04) {
+      rearHead.offset = 0;
+      rearHead.offsetMode = "idle";
     }
 
     const seamIndex = this.splitState.index - 1;
@@ -850,17 +864,9 @@ class ZumaGame {
       return;
     }
 
-    const { frontOffset, index } = this.splitState;
-    // 并链时把断链期间积累的段间偏移吸收回基准坐标，避免下一帧出现整体跳变。
-    this.chainHeadS += frontOffset;
-
-    for (let ballIndex = index; ballIndex < this.chain.length; ballIndex += 1) {
-      // Rear balls were being simulated relative to the unsplit baseline. Once
-      // the seam closes, fold the segment delta back into their per-ball offset
-      // so there is no visible snap on the next sync.
-      this.chain[ballIndex].offset -= frontOffset;
-    }
-
+    // With the current split model there is no extra segment delta to absorb:
+    // the shared chain baseline stayed frozen while the seam was open, and the
+    // rear segment used only per-ball offsets to close the gap.
     this.splitState = null;
   }
 
@@ -1105,7 +1111,6 @@ class ZumaGame {
     } else if (start > 0 && start < this.chain.length) {
       this.splitState = {
         index: start,
-        frontOffset: 0,
         actionId: resolvedActionId,
       };
       // Once a fresh split is created, cross-gap matching is invalid until the
