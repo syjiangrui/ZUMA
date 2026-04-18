@@ -82,6 +82,7 @@ The entire game logic and rendering is contained in a single `main.js` file (2,5
 
 8. **Rendering** (`render()`, `drawBall()`, `drawChain()`, `drawBackground()`, etc.)
    - Layered draw order: background → track → goal → chain → projectile → aim guide → shooter → HUD → end card
+   - **Shooter is a classic Zuma stone frog** (`drawShooter()` → `drawFrogBody()`, `drawFrogHead()`, `drawFrogEyes()`, `drawFrogBellyBall()`). Entire frog rotates with aim angle; ground shadow stays flat. Current ball is held in the frog's mouth (upper jaw overlaps ball top); next ball sits in a belly socket.
    - Ball textures: procedurally generated with stone body + rolling equatorial band
    - Temple glyphs: scarab, eye, sun, mask, ankh (one per color palette)
    - No external image assets; all visuals are Canvas 2D primitives or generated textures
@@ -303,6 +304,7 @@ When/if modularization begins, prioritize in this order:
 
 - `CHAIN_SPEED`: How fast the ball train advances (72 default)
 - `PROJECTILE_SPEED`: How fast fired balls travel (820 default)
+- `MUZZLE_OFFSET`: Projectile spawn distance from shooter center (68, matched to frog snout tip)
 - `INSERT_SETTLE_SPEED` / `GAP_CLOSE_SPEED` / `SPLIT_CLOSE_SPEED`: Transition speeds
 - `SPLIT_FRONT_PULL_RATIO`, `SPLIT_FRONT_PULL_MAX`: How much front chain retracts during break
 - `SPLIT_MERGE_EPSILON`: Distance threshold for considering split closed

@@ -22,7 +22,7 @@ const EXIT_GAP = 180;
 // Projectile tuning for both mouse and touch play.
 const PROJECTILE_SPEED = 820;
 const PROJECTILE_MARGIN = 72;
-const MUZZLE_OFFSET = 84;
+const MUZZLE_OFFSET = 68;
 const AIM_GUIDE_LENGTH = 118;
 
 // Transition tuning. INSERT_SETTLE_SPEED controls how quickly an insertion
@@ -1590,8 +1590,8 @@ class ZumaGame {
   }
 
   drawAimGuide(ctx) {
-    const startX = this.shooter.x + Math.cos(this.shooter.angle) * 60;
-    const startY = this.shooter.y + Math.sin(this.shooter.angle) * 60;
+    const startX = this.shooter.x + Math.cos(this.shooter.angle) * 56;
+    const startY = this.shooter.y + Math.sin(this.shooter.angle) * 56;
     const endX = startX + Math.cos(this.shooter.angle) * AIM_GUIDE_LENGTH;
     const endY = startY + Math.sin(this.shooter.angle) * AIM_GUIDE_LENGTH;
 
@@ -1612,74 +1612,250 @@ class ZumaGame {
     ctx.save();
     ctx.translate(x, y);
 
-    ctx.fillStyle = "rgba(18, 21, 24, 0.45)";
+    // --- 1. Ground shadow (stays flat, does not rotate) ---
+    ctx.fillStyle = "rgba(18, 21, 24, 0.40)";
     ctx.beginPath();
-    ctx.ellipse(0, 36, 76, 18, 0, 0, TAU);
+    ctx.ellipse(0, 46, 64, 16, 0, 0, TAU);
     ctx.fill();
 
-    const plinth = ctx.createRadialGradient(-18, -24, 12, 0, 0, 58);
-    plinth.addColorStop(0, "#9ea8ad");
-    plinth.addColorStop(0.46, "#73818b");
-    plinth.addColorStop(1, "#4a555f");
-    ctx.fillStyle = plinth;
-    ctx.beginPath();
-    ctx.arc(0, 0, 46, 0, TAU);
-    ctx.fill();
+    // --- Rotate entire frog to face the aim direction ---
+    // angle convention: -PI/2 = up. Frog art faces local −Y, so offset by PI/2.
+    ctx.rotate(angle + Math.PI * 0.5);
 
-    ctx.strokeStyle = "rgba(97, 73, 42, 0.92)";
-    ctx.lineWidth = 10;
-    ctx.beginPath();
-    ctx.arc(0, 0, 39, 0, TAU);
-    ctx.stroke();
+    // --- 2. Frog body ---
+    this.drawFrogBody(ctx);
 
-    ctx.strokeStyle = "rgba(228, 198, 121, 0.34)";
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.arc(0, 0, 39, 0, TAU);
-    ctx.stroke();
+    // --- 3. Head / mouth with current ball ---
+    this.drawFrogHead(ctx, angle);
 
-    const core = ctx.createRadialGradient(-10, -16, 4, 0, 0, 26);
-    core.addColorStop(0, "#31444c");
-    core.addColorStop(0.54, "#19272c");
-    core.addColorStop(1, "#0f171b");
-    ctx.fillStyle = core;
-    ctx.beginPath();
-    ctx.arc(0, 0, 24, 0, TAU);
-    ctx.fill();
+    // --- 4. Eyes ---
+    this.drawFrogEyes(ctx);
 
-    ctx.save();
-    ctx.rotate(angle);
-    const barrelShadow = ctx.createLinearGradient(0, -86, 0, 8);
-    barrelShadow.addColorStop(0, "rgba(12, 14, 18, 0.5)");
-    barrelShadow.addColorStop(1, "rgba(12, 14, 18, 0.02)");
-    ctx.fillStyle = barrelShadow;
-    this.fillRoundedRect(ctx, -17, -77, 34, 88, 15);
+    // --- 5. Next ball preview in belly socket ---
+    this.drawFrogBellyBall(ctx);
 
-    const barrel = ctx.createLinearGradient(0, -80, 0, 4);
-    barrel.addColorStop(0, "#d1ba79");
-    barrel.addColorStop(0.25, "#8f6b3b");
-    barrel.addColorStop(0.72, "#59656e");
-    barrel.addColorStop(1, "#36424a");
-    ctx.fillStyle = barrel;
-    this.fillRoundedRect(ctx, -12, -82, 24, 86, 12);
-
-    ctx.strokeStyle = "rgba(245, 220, 146, 0.3)";
-    ctx.lineWidth = 2;
-    this.fillRoundedRect(ctx, -9, -71, 18, 62, 9);
-    ctx.stroke();
     ctx.restore();
+  }
 
-    this.drawBall(ctx, 0, -10, BALL_RADIUS + 1, this.currentPaletteIndex, angle * 2.2);
+  // Squat stone-frog body. Bezier curves define the silhouette; filled with a
+  // warm-stone radial gradient and decorated with carved bands + bronze trim.
+  drawFrogBody(ctx) {
+    // Main body silhouette — a squat toad shape
+    ctx.beginPath();
+    ctx.moveTo(0, -28);
+    // right shoulder → haunch
+    ctx.bezierCurveTo(26, -28, 50, -14, 52, 8);
+    ctx.bezierCurveTo(54, 24, 44, 40, 28, 44);
+    // belly bottom
+    ctx.lineTo(-28, 44);
+    // left haunch → shoulder
+    ctx.bezierCurveTo(-44, 40, -54, 24, -52, 8);
+    ctx.bezierCurveTo(-50, -14, -26, -28, 0, -28);
+    ctx.closePath();
+
+    const bodyGrad = ctx.createRadialGradient(-8, 4, 6, 0, 8, 56);
+    bodyGrad.addColorStop(0, "#8a8274");
+    bodyGrad.addColorStop(0.5, "#6b645a");
+    bodyGrad.addColorStop(1, "#44403a");
+    ctx.fillStyle = bodyGrad;
+    ctx.fill();
+    ctx.strokeStyle = "rgba(40, 34, 26, 0.35)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Carved horizontal bands across the chest (Mayan decorative lines)
+    ctx.strokeStyle = "rgba(30, 24, 18, 0.22)";
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(-30, 14);
+    ctx.quadraticCurveTo(0, 18, 30, 14);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-24, 24);
+    ctx.quadraticCurveTo(0, 27, 24, 24);
+    ctx.stroke();
+
+    // Bronze ring at the base (sitting on altar)
+    ctx.beginPath();
+    ctx.ellipse(0, 44, 32, 7, 0, 0, TAU);
+    ctx.strokeStyle = "rgba(180, 148, 60, 0.55)";
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    // Front limbs — small stone bumps on each side
+    for (let side = -1; side <= 1; side += 2) {
+      ctx.beginPath();
+      ctx.ellipse(side * 42, 30, 11, 7, side * 0.3, 0, TAU);
+      const limbGrad = ctx.createRadialGradient(
+        side * 40, 28, 2, side * 42, 30, 11,
+      );
+      limbGrad.addColorStop(0, "#7a7468");
+      limbGrad.addColorStop(1, "#4d4840");
+      ctx.fillStyle = limbGrad;
+      ctx.fill();
+      ctx.strokeStyle = "rgba(40, 34, 26, 0.25)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+
+  // Head / mouth drawing. The whole frog is already rotated by drawShooter(),
+  // so this just draws the head shape in local space (mouth faces −Y).
+  // Draw order: lower jaw → mouth cavity → ball → upper jaw (overlapping ball).
+  drawFrogHead(ctx, angle) {
+    const headLen = 52;   // center to snout tip
+    const headW = 28;     // half-width at base
+    const mouthW = 18;    // half-width at snout
+    const ballDist = 34;  // ball center distance from frog center
+
+    // --- Lower jaw (behind the ball) ---
+    ctx.beginPath();
+    ctx.moveTo(-headW, 4);
+    ctx.bezierCurveTo(-headW, -14, -mouthW, -headLen + 10, -mouthW + 3, -headLen + 2);
+    ctx.lineTo(mouthW - 3, -headLen + 2);
+    ctx.bezierCurveTo(mouthW, -headLen + 10, headW, -14, headW, 4);
+    ctx.closePath();
+
+    const jawGrad = ctx.createLinearGradient(0, 4, 0, -headLen);
+    jawGrad.addColorStop(0, "#6b6458");
+    jawGrad.addColorStop(1, "#524d44");
+    ctx.fillStyle = jawGrad;
+    ctx.fill();
+    ctx.strokeStyle = "rgba(40, 34, 26, 0.3)";
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    // --- Mouth cavity (dark interior) ---
+    ctx.beginPath();
+    ctx.ellipse(0, -ballDist, mouthW - 3, 14, 0, 0, TAU);
+    ctx.fillStyle = "#16110e";
+    ctx.fill();
+
+    // --- Current ball inside the mouth ---
     this.drawBall(
-      ctx,
-      46,
-      10,
-      BALL_RADIUS - 1,
-      this.nextPaletteIndex,
-      -angle * 1.5,
+      ctx, 0, -ballDist, BALL_RADIUS, this.currentPaletteIndex, angle * 2.2,
     );
 
-    ctx.restore();
+    // --- Upper jaw / snout (overlaps top of ball for "held" look) ---
+    ctx.beginPath();
+    ctx.moveTo(-headW + 2, 2);
+    ctx.bezierCurveTo(
+      -headW + 2, -10,
+      -mouthW + 1, -headLen + 14,
+      -mouthW + 5, -headLen + 2,
+    );
+    // Snout tip — slight V notch for the opening
+    ctx.quadraticCurveTo(-3, -headLen - 4, 0, -headLen - 2);
+    ctx.quadraticCurveTo(3, -headLen - 4, mouthW - 5, -headLen + 2);
+    ctx.bezierCurveTo(
+      mouthW - 1, -headLen + 14,
+      headW - 2, -10,
+      headW - 2, 2,
+    );
+    ctx.closePath();
+
+    const snoutGrad = ctx.createLinearGradient(0, 2, 0, -headLen);
+    snoutGrad.addColorStop(0, "#7a7264");
+    snoutGrad.addColorStop(0.6, "#625c52");
+    snoutGrad.addColorStop(1, "#6e6860");
+    ctx.fillStyle = snoutGrad;
+    ctx.fill();
+    ctx.strokeStyle = "rgba(40, 34, 26, 0.28)";
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    // Nostrils near the snout tip
+    ctx.fillStyle = "#2a2420";
+    ctx.beginPath();
+    ctx.arc(-7, -headLen + 6, 2.2, 0, TAU);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(7, -headLen + 6, 2.2, 0, TAU);
+    ctx.fill();
+
+    // Bronze accent lines along jaw edges
+    ctx.strokeStyle = "rgba(196, 163, 62, 0.38)";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(-headW + 5, 0);
+    ctx.quadraticCurveTo(-mouthW + 2, -headLen + 14, -mouthW + 6, -headLen + 4);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(headW - 5, 0);
+    ctx.quadraticCurveTo(mouthW - 2, -headLen + 14, mouthW - 6, -headLen + 4);
+    ctx.stroke();
+  }
+
+  // Stone dome eyes — the most iconic part of the Zuma frog. Each eye is a
+  // raised stone bump with a golden iris ring and a vertical reptilian pupil slit.
+  drawFrogEyes(ctx) {
+    const eyeX = 20;
+    const eyeY = -24;
+    const eyeR = 12;
+
+    for (let side = -1; side <= 1; side += 2) {
+      const ex = side * eyeX;
+
+      // Eye dome — stone gradient
+      ctx.beginPath();
+      ctx.arc(ex, eyeY, eyeR, 0, TAU);
+      const domeGrad = ctx.createRadialGradient(
+        ex - 2, eyeY - 3, 2, ex, eyeY, eyeR,
+      );
+      domeGrad.addColorStop(0, "#9a9488");
+      domeGrad.addColorStop(0.6, "#6b645a");
+      domeGrad.addColorStop(1, "#4a4540");
+      ctx.fillStyle = domeGrad;
+      ctx.fill();
+      ctx.strokeStyle = "rgba(40, 34, 26, 0.3)";
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+
+      // Bronze iris ring
+      ctx.beginPath();
+      ctx.arc(ex, eyeY, 7, 0, TAU);
+      ctx.strokeStyle = "rgba(200, 168, 50, 0.72)";
+      ctx.lineWidth = 2.2;
+      ctx.stroke();
+
+      // Dark iris fill
+      ctx.beginPath();
+      ctx.arc(ex, eyeY, 5.5, 0, TAU);
+      ctx.fillStyle = "#1c1a12";
+      ctx.fill();
+
+      // Vertical slit pupil (reptilian)
+      ctx.beginPath();
+      ctx.ellipse(ex, eyeY, 1.8, 5, 0, 0, TAU);
+      ctx.fillStyle = "#0a0a06";
+      ctx.fill();
+
+      // Small specular highlight
+      ctx.beginPath();
+      ctx.arc(ex - 2, eyeY - 2.5, 1.8, 0, TAU);
+      ctx.fillStyle = "rgba(255, 252, 230, 0.30)";
+      ctx.fill();
+    }
+  }
+
+  // Next ball sits in a small carved socket on the frog's belly.
+  drawFrogBellyBall(ctx) {
+    const nx = 0;
+    const ny = 32;
+
+    // Recessed stone socket
+    ctx.beginPath();
+    ctx.arc(nx, ny, BALL_RADIUS + 3, 0, TAU);
+    ctx.fillStyle = "#2a2520";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(180, 148, 60, 0.45)";
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+
+    // The preview ball (slightly smaller)
+    this.drawBall(
+      ctx, nx, ny, BALL_RADIUS - 1, this.nextPaletteIndex, -this.shooter.angle * 1.5,
+    );
   }
 
   // The top overlay is now a real HUD layer: state, score/combo, next ball and

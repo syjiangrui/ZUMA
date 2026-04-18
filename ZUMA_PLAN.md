@@ -789,7 +789,8 @@ Current status:
 - The goal is no longer "add any texture"; it is "make the whole board read as one temple-material system".
 
 What has already changed in code:
-- Shooter, HUD panels, restart button and end cards are moving toward a stone altar / bronze trim look.
+- Shooter replaced with a classic Zuma stone-frog: squat body + open mouth holding current ball + stone-dome eyes with reptilian slit pupils + belly socket for next-ball preview. Entire frog rotates with aim angle; ground shadow stays flat. Procedural Canvas 2D, no external assets.
+- HUD panels, restart button and end cards are moving toward a stone altar / bronze trim look.
 - The track has been simplified toward a carved groove instead of a heavy framed pipe.
 - Balls now use a stone-body render plus a moving symbolic belt instead of the old flat rotating badge.
 - The belt texture is horizontally tileable and includes a seam-blend post-pass to reduce rotation seam flashes.
