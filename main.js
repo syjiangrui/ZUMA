@@ -26,7 +26,7 @@ const AIM_GUIDE_LENGTH = 132;
 // "makes room", while GAP_CLOSE_SPEED controls how quickly a broken rear
 // segment catches back up after a removal. These are rule-affecting values, not
 // just cosmetic easing constants.
-const INSERT_SETTLE_SPEED = 110;
+const INSERT_SETTLE_SPEED = 180;
 const GAP_CLOSE_SPEED = 60;
 const IMPACT_FADE_SPEED = 7;
 const INSERT_MATCH_DELAY = 0.11;
@@ -582,6 +582,32 @@ class ZumaGame {
     return best;
   }
 
+  // Keep the original one-step insertion model, but open a small local pocket
+  // around the new ball immediately so the first frame reads less like overlap
+  // and more like the chain yielding at the impact point.
+  applyInsertSpacingWave(insertIndex) {
+    const frontNudgeProfile = [6, 3];
+    const rearOpenProfile = [8, 5, 2, 0];
+
+    for (let offsetIndex = 0; offsetIndex < frontNudgeProfile.length; offsetIndex += 1) {
+      const chainIndex = insertIndex - 1 - offsetIndex;
+      if (chainIndex < 0) {
+        break;
+      }
+
+      this.chain[chainIndex].offset += frontNudgeProfile[offsetIndex];
+      this.chain[chainIndex].offsetMode = "insert";
+    }
+
+    for (let offsetIndex = 0; insertIndex + 1 + offsetIndex < this.chain.length; offsetIndex += 1) {
+      const chainIndex = insertIndex + 1 + offsetIndex;
+      const immediateClearance = rearOpenProfile[offsetIndex] ?? 0;
+
+      this.chain[chainIndex].offset += BALL_SPACING - immediateClearance;
+      this.chain[chainIndex].offsetMode = "insert";
+    }
+  }
+
   insertProjectile({ hitIndex, hitS, projectileS }) {
     const insertIndex = projectileS > hitS ? hitIndex : hitIndex + 1;
     const safeIndex = Math.max(0, Math.min(this.chain.length, insertIndex));
@@ -606,11 +632,7 @@ class ZumaGame {
 
     this.chain.splice(safeIndex, 0, insertedBall);
 
-    // 新球插入后，后半段先整体让出一个球位，再按 insert 模式缓动回标准间距。
-    for (let index = safeIndex + 1; index < this.chain.length; index += 1) {
-      this.chain[index].offset += BALL_SPACING;
-      this.chain[index].offsetMode = "insert";
-    }
+    this.applyInsertSpacingWave(safeIndex);
 
     this.addImpact(safeIndex - 1, 0.72);
     this.addImpact(safeIndex + 1, 0.72);
