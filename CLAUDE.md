@@ -35,7 +35,7 @@ Since this is a single-page HTML game with no build system, development is strai
 
 ### High-Level System Design
 
-The entire game logic and rendering is contained in a single `main.js` file (~2,800 lines) within a `ZumaGame` class. While currently monolithic, the code is logically organized into 8 clear subsystems:
+The entire game logic and rendering is contained in a single `main.js` file (~3,300 lines) within a `ZumaGame` class, plus a standalone `SfxEngine` class for procedural audio. While currently monolithic, the code is logically organized into 10 clear subsystems:
 
 1. **Configuration & Constants** (top of file)
    - Fixed logical resolution: `430 x 932` (portrait mobile)
@@ -89,8 +89,14 @@ The entire game logic and rendering is contained in a single `main.js` file (~2,
 
 9. **Input & UI** (`bindEvents()`, `getUiActionAt()`, `triggerUiAction()`)
    - Pointer events (mouse + touch): `pointerdown`, `pointermove`, `pointerup`
-   - UI hit-tests first (restart button, next preview, end card) before game input
+   - UI hit-tests first (restart button, sound toggle, next preview, end card) before game input
    - No DOM buttons; all UI drawn on canvas
+
+10. **Audio** (`SfxEngine` class, before `ZumaGame`)
+    - All sounds procedurally synthesized via Web Audio API — no external audio files
+    - `AudioContext` created lazily on first user gesture (mobile autoplay policy)
+    - Effects: shoot (pop+puff), hit (noise burst), match (dual-tone chime, pitch rises with combo), win (ascending arpeggio), lose (low rumble)
+    - Default muted; player toggles via HUD sound button
 
 ### Key Data Models
 
@@ -242,8 +248,8 @@ After experiments with full-sphere UV projection (which caused center stretching
 **Phase 2** (completed) established the full gameplay loop: single-round lifecycle, win/lose conditions, combo tracking, cross-seam matching, and split/merge mechanics. The system is rule-stable.
 
 **Phase 3** (in progress) is visual and audio polish:
-- **Completed**: Material unification (stone body, rolling band, temple glyphs), green-stone frog redesign, debris particle system, victory/defeat full-screen effects (gold particles + glow for win; screen shake + red vignette for lose), performance caching pass
-- **In Progress**: UI skin refinement, sound effects
+- **Completed**: Material unification (stone body, rolling band, temple glyphs), green-stone frog redesign, debris particle system, victory/defeat full-screen effects, procedural audio (Web Audio API synthesis), sound toggle button
+- **In Progress**: UI skin refinement
 - **Not Yet**: Multi-level, special ball types, difficulty curves, save/load
 
 When working on Phase 3 tasks:
@@ -278,7 +284,7 @@ When/if modularization begins, prioritize in this order:
 .
 ├── index.html              # Single HTML entry point (minimal)
 ├── style.css               # Canvas sizing, page layout, color scheme
-├── main.js                 # Entire game (~2,800 lines; single ZumaGame class)
+├── main.js                 # Entire game (~3,300 lines; single ZumaGame class)
 ├── CLAUDE.md               # This file
 ├── TECHNICAL_ARCHITECTURE.md  # Implementation deep-dive (reference docs)
 └── ZUMA_PLAN.md            # Phase 1/2/3 planning and history

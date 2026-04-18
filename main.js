@@ -103,10 +103,193 @@ const BALL_PALETTES = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Procedural Audio — all sound effects synthesized via Web Audio API.
+// No external audio files needed. AudioContext is lazily created on first user
+// interaction to satisfy mobile browser autoplay policies.
+// ---------------------------------------------------------------------------
+class SfxEngine {
+  constructor() {
+    this.ctx = null;    // AudioContext, created on first unlock
+    this.muted = true;  // default muted — player opts in via HUD button
+  }
+
+  // Must be called from a user gesture (pointerdown / keydown) at least once.
+  unlock() {
+    if (this.ctx) return;
+    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // Some browsers suspend the context until a resume inside a gesture.
+    if (this.ctx.state === "suspended") {
+      this.ctx.resume();
+    }
+  }
+
+  toggleMute() {
+    this.muted = !this.muted;
+    return this.muted;
+  }
+
+  // --- Individual sound effects ------------------------------------------
+
+  // Crisp airy pop — frog spits the ball
+  playShoot() {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime;
+    // Bright tonal pop
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(480, t);
+    o.frequency.exponentialRampToValueAtTime(160, t + 0.09);
+    g.gain.setValueAtTime(0.2, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+    o.connect(g).connect(this.ctx.destination);
+    o.start(t);
+    o.stop(t + 0.1);
+    // Short breathy noise layer for "puff" texture
+    const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.07, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+    }
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const hp = this.ctx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = 2000;
+    const ng = this.ctx.createGain();
+    ng.gain.setValueAtTime(0.12, t);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+    src.connect(hp).connect(ng).connect(this.ctx.destination);
+    src.start(t);
+  }
+
+  // Stone-on-stone click — ball inserts into chain
+  playHit() {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime;
+    // Short noise burst through a bandpass filter
+    const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.06, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+    }
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = 1800;
+    bp.Q.value = 1.2;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.3, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+    src.connect(bp).connect(g).connect(this.ctx.destination);
+    src.start(t);
+  }
+
+  // Crisp stone-shatter chime — balls eliminated. Combo shifts pitch up.
+  playMatch(comboLevel = 1) {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime;
+    const baseFreq = 880 + (comboLevel - 1) * 150;
+    // Primary tone — short bright ping
+    const o1 = this.ctx.createOscillator();
+    const g1 = this.ctx.createGain();
+    o1.type = "sine";
+    o1.frequency.setValueAtTime(baseFreq, t);
+    g1.gain.setValueAtTime(0.18, t);
+    g1.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+    o1.connect(g1).connect(this.ctx.destination);
+    o1.start(t);
+    o1.stop(t + 0.15);
+    // Harmonic overtone — adds sparkle
+    const o2 = this.ctx.createOscillator();
+    const g2 = this.ctx.createGain();
+    o2.type = "sine";
+    o2.frequency.setValueAtTime(baseFreq * 1.5, t);
+    g2.gain.setValueAtTime(0.08, t);
+    g2.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+    o2.connect(g2).connect(this.ctx.destination);
+    o2.start(t);
+    o2.stop(t + 0.1);
+    // Tiny noise crackle for "stone breaking" texture
+    const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.04, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 2);
+    }
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = 3000;
+    bp.Q.value = 0.8;
+    const ng = this.ctx.createGain();
+    ng.gain.setValueAtTime(0.1, t);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+    src.connect(bp).connect(ng).connect(this.ctx.destination);
+    src.start(t);
+  }
+
+  // Ascending arpeggio — victory fanfare
+  playWin() {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime;
+    const notes = [523, 659, 784, 1047]; // C5 E5 G5 C6
+    notes.forEach((freq, i) => {
+      const o = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      o.type = "sine";
+      o.frequency.value = freq;
+      const start = t + i * 0.12;
+      g.gain.setValueAtTime(0, start);
+      g.gain.linearRampToValueAtTime(0.18, start + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.001, start + 0.4);
+      o.connect(g).connect(this.ctx.destination);
+      o.start(start);
+      o.stop(start + 0.4);
+    });
+  }
+
+  // Low rumble — defeat
+  playLose() {
+    if (!this.ctx || this.muted) return;
+    const t = this.ctx.currentTime;
+    // Low oscillator
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    o.type = "sawtooth";
+    o.frequency.setValueAtTime(90, t);
+    o.frequency.exponentialRampToValueAtTime(40, t + 0.5);
+    g.gain.setValueAtTime(0.2, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+    o.connect(g).connect(this.ctx.destination);
+    o.start(t);
+    o.stop(t + 0.5);
+    // Noise layer
+    const buf = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.4, this.ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+    }
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 300;
+    const ng = this.ctx.createGain();
+    ng.gain.setValueAtTime(0.15, t);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+    src.connect(lp).connect(ng).connect(this.ctx.destination);
+    src.start(t);
+  }
+}
+
 class ZumaGame {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
+    this.sfx = new SfxEngine();
     this.pathPoints = [];
     this.totalPathLength = 0;
     this.ballPatterns = [];
@@ -490,6 +673,9 @@ class ZumaGame {
       this.roundEndTimer = 0;
       if (nextState === "win") {
         this.spawnVictoryParticles();
+        this.sfx.playWin();
+      } else if (nextState === "lose") {
+        this.sfx.playLose();
       }
     }
   }
@@ -562,6 +748,7 @@ class ZumaGame {
         return;
       }
 
+      this.sfx.unlock();
       this.updatePointer(event);
       const uiAction = this.getUiActionAt(this.pointer.x, this.pointer.y);
       if (uiAction) {
@@ -631,6 +818,7 @@ class ZumaGame {
     });
 
     window.addEventListener("keydown", (event) => {
+      this.sfx.unlock();
       if (event.code === "Space") {
         event.preventDefault();
         if (this.isRoundPlaying()) {
@@ -672,11 +860,15 @@ class ZumaGame {
   }
 
   getHudRestartButtonRect() {
-    return { x: GAME_WIDTH - 108, y: 18, w: 84, h: 42 };
+    return { x: GAME_WIDTH - 78, y: 18, w: 64, h: 38 };
+  }
+
+  getHudSoundButtonRect() {
+    return { x: GAME_WIDTH - 120, y: 18, w: 36, h: 38 };
   }
 
   getHudNextPreviewRect() {
-    return { x: GAME_WIDTH - 180, y: 16, w: 56, h: 56 };
+    return { x: GAME_WIDTH - 170, y: 16, w: 44, h: 44 };
   }
 
   // HUD and modal buttons share the same source rects for drawing and hit
@@ -706,6 +898,10 @@ class ZumaGame {
       return "restart";
     }
 
+    if (this.isPointInsideRect(x, y, this.getHudSoundButtonRect())) {
+      return "toggleSound";
+    }
+
     return null;
   }
 
@@ -713,6 +909,9 @@ class ZumaGame {
   triggerUiAction(action) {
     if (action === "restart") {
       this.resetRound();
+    } else if (action === "toggleSound") {
+      this.sfx.unlock();
+      this.sfx.toggleMute();
     }
   }
 
@@ -801,6 +1000,7 @@ class ZumaGame {
     context.totalScore += awardedScore;
     this.score += awardedScore;
     this.bestCombo = Math.max(this.bestCombo, context.combo);
+    this.sfx.playMatch(context.combo);
 
     const tags = [];
     if (context.combo > 1) {
@@ -1472,6 +1672,7 @@ class ZumaGame {
     if (collision) {
       // Once the projectile is converted into a chain ball, the airborne object
       // disappears and all further motion is handled by the chain system.
+      this.sfx.playHit();
       this.insertProjectile(collision);
       this.projectile = null;
       return;
@@ -1492,6 +1693,7 @@ class ZumaGame {
       return;
     }
 
+    this.sfx.playShoot();
     const actionId = this.createActionContext("shot");
     const angle = this.shooter.angle;
     const startX = this.shooter.x + Math.cos(angle) * MUZZLE_OFFSET;
@@ -2302,6 +2504,7 @@ class ZumaGame {
     ctx.fillText(`分数 ${this.score}`, 30, 103);
     ctx.fillText(this.getComboHudText(), 128, 103);
     this.drawHudNextPreview(ctx);
+    this.drawSoundButton(ctx);
     this.drawRestartButton(
       ctx,
       this.getHudRestartButtonRect(),
@@ -2485,7 +2688,7 @@ class ZumaGame {
     const rect = this.getHudNextPreviewRect();
 
     ctx.save();
-    this.drawStonePanel(ctx, rect.x, rect.y, rect.w, rect.h, 18, {
+    this.drawStonePanel(ctx, rect.x, rect.y, rect.w, rect.h, 14, {
       top: "#737f87",
       bottom: "#5f6971",
       stroke: "rgba(90, 67, 39, 0.9)",
@@ -2494,24 +2697,83 @@ class ZumaGame {
     });
 
     ctx.strokeStyle = "rgba(228, 193, 108, 0.22)";
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.arc(rect.x + rect.w / 2, rect.y + 23, 18, 0, TAU);
+    ctx.arc(rect.x + rect.w / 2, rect.y + 20, 14, 0, TAU);
     ctx.stroke();
 
     ctx.fillStyle = "rgba(244, 229, 189, 0.78)";
-    ctx.font = "11px Georgia";
+    ctx.font = "9px Georgia";
     ctx.textAlign = "center";
-    ctx.fillText("下一个", rect.x + rect.w / 2, rect.y + rect.h - 8);
+    ctx.fillText("下一个", rect.x + rect.w / 2, rect.y + rect.h - 5);
     this.drawBall(
       ctx,
       rect.x + rect.w / 2,
-      rect.y + 23,
-      BALL_RADIUS - 1,
+      rect.y + 20,
+      BALL_RADIUS - 2,
       this.nextPaletteIndex,
       -this.shooter.angle * 1.5,
     );
     ctx.textAlign = "start";
+    ctx.restore();
+  }
+
+  // Small sound toggle button in the HUD. Shows a speaker icon with a slash
+  // when muted. Drawn as canvas primitives to avoid external assets.
+  drawSoundButton(ctx) {
+    const rect = this.getHudSoundButtonRect();
+    const isPressed =
+      this.uiPressAction === "toggleSound" &&
+      this.isPointInsideRect(this.pointer.x, this.pointer.y, rect);
+
+    ctx.save();
+    this.drawStonePanel(ctx, rect.x, rect.y, rect.w, rect.h, 14, {
+      top: isPressed ? "#876748" : "#94724d",
+      bottom: isPressed ? "#64472e" : "#705139",
+      stroke: "rgba(242, 217, 151, 0.42)",
+      innerStroke: "rgba(255, 240, 210, 0.12)",
+      shadow: "rgba(0, 0, 0, 0.18)",
+    });
+
+    // Speaker icon (centered in button)
+    const cx = rect.x + rect.w / 2;
+    const cy = rect.y + rect.h / 2;
+    ctx.translate(cx, cy);
+
+    // Speaker body
+    ctx.fillStyle = "#f4e7c3";
+    ctx.beginPath();
+    ctx.moveTo(-6, -4);
+    ctx.lineTo(-2, -4);
+    ctx.lineTo(4, -8);
+    ctx.lineTo(4, 8);
+    ctx.lineTo(-2, 4);
+    ctx.lineTo(-6, 4);
+    ctx.closePath();
+    ctx.fill();
+
+    if (this.sfx.muted) {
+      // Mute slash
+      ctx.strokeStyle = "#e85050";
+      ctx.lineWidth = 2;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(-8, -9);
+      ctx.lineTo(8, 9);
+      ctx.stroke();
+    } else {
+      // Sound waves
+      ctx.strokeStyle = "#f4e7c3";
+      ctx.lineWidth = 1.5;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.arc(5, 0, 4, -0.6, 0.6);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(5, 0, 8, -0.5, 0.5);
+      ctx.stroke();
+    }
+
     ctx.restore();
   }
 

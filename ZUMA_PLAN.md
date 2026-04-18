@@ -805,15 +805,21 @@ What has already changed in code (H):
 - Debris particle system added: each eliminated ball spawns 6 colored fragments (palette base/bright/accent) that fly outward with gravity, fade and shrink over ~0.5s. Capped at 120 particles total.
 - Impact aura already existed from Phase 2 (short glow pulse on collision/merge).
 
-What is still needed in H:
-- Victory full-screen celebration effect (gold particles / flash)
-- Defeat full-screen feedback (screen shake / darken)
-- Merge/seam closure flash (deferred — low priority, revisit after H core is done)
+What has already changed in code (H — complete):
+- Victory: golden particle burst from center + rising sparkles for 1.5s + radial gold glow overlay.
+- Defeat: screen shake (14px, ~0.3s decay) + red vignette flash (0.8s fade).
+- Merge/seam closure flash deferred — low priority, revisit later.
+
+What has already changed in code (J — complete):
+- Procedural audio via `SfxEngine` class (Web Audio API, zero external files).
+- Effects: shoot (sine pop + high-pass noise puff), hit (bandpass noise burst), match (dual-tone chime + noise crackle, pitch rises per combo level), win (C-E-G-C ascending arpeggio), lose (sawtooth rumble + low-pass noise).
+- AudioContext lazily created on first user gesture for mobile compatibility.
+- Default muted; HUD sound toggle button (speaker icon with red slash when muted).
+- HUD layout adjusted: next-preview (44×44) + sound button (36×38) + restart (64×38), non-overlapping.
 
 What is still not the focus yet:
 - Full HUD skin pass (`I`)
-- Audio (`J`)
-- Performance tuning (`K`) — note: a major rendering-cache pass has already been done (offscreen canvases for background/track/balls/frog/HUD, Path2D for track, gradient count reduced from ~190/frame to ~8/frame). Further K work would focus on particle budgets and low-end device degradation.
+- Performance tuning (`K`) — major rendering-cache pass already done. Further K work would focus on particle budgets and low-end device degradation.
 
 Next expected move:
-- Finish H: victory/defeat full-screen feedback, then proceed to I or J.
+- Work package I (HUD / end-page / button skin upgrade), or proceed to Phase 4.
