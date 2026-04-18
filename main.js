@@ -5,10 +5,10 @@ const GAME_HEIGHT = 932;
 
 // Ball geometry and default spacing. BALL_SPACING is intentionally slightly
 // smaller than diameter so the chain reads as a continuous packed line.
-const BALL_RADIUS = 18;
+const BALL_RADIUS = 14;
 const BALL_DIAMETER = BALL_RADIUS * 2;
-const BALL_SPACING = 34;
-const START_CHAIN_COUNT = 22;
+const BALL_SPACING = 27;
+const START_CHAIN_COUNT = 30;
 
 // Base movement tuning. CHAIN_SPEED is the normal conveyor speed toward the
 // goal. EXIT_GAP lets the whole chain travel a bit past the visible goal before
@@ -19,8 +19,8 @@ const EXIT_GAP = 180;
 // Projectile tuning for both mouse and touch play.
 const PROJECTILE_SPEED = 820;
 const PROJECTILE_MARGIN = 72;
-const MUZZLE_OFFSET = 96;
-const AIM_GUIDE_LENGTH = 132;
+const MUZZLE_OFFSET = 84;
+const AIM_GUIDE_LENGTH = 118;
 
 // Transition tuning. INSERT_SETTLE_SPEED controls how quickly an insertion
 // "makes room", while GAP_CLOSE_SPEED controls how quickly a broken rear
@@ -101,13 +101,13 @@ class ZumaGame {
     this.nextPaletteIndex = 0;
     this.shooter = {
       x: GAME_WIDTH * 0.5,
-      y: GAME_HEIGHT - 118,
+      y: GAME_HEIGHT * 0.58,
       angle: -Math.PI / 2,
     };
     this.pointer = {
       active: false,
-      x: GAME_WIDTH * 0.5,
-      y: GAME_HEIGHT * 0.35,
+      x: GAME_WIDTH * 0.5 + 90,
+      y: GAME_HEIGHT * 0.58 - 120,
     };
     this.lastTime = 0;
 
@@ -126,15 +126,36 @@ class ZumaGame {
   // balls by raw x/y velocity on the track; it only changes path distance.
   createPath() {
     const controlPoints = [
-      { x: 64, y: 122 },
-      { x: 132, y: 142 },
-      { x: 338, y: 228 },
-      { x: 322, y: 342 },
-      { x: 88, y: 430 },
-      { x: 118, y: 594 },
-      { x: 344, y: 652 },
-      { x: 316, y: 784 },
-      { x: 172, y: 846 },
+      { x: 430, y: 716 },
+      { x: 340, y: 750 },
+      { x: 196, y: 748 },
+      { x: 84, y: 688 },
+      { x: 42, y: 554 },
+      { x: 58, y: 374 },
+      { x: 162, y: 276 },
+      { x: 318, y: 274 },
+      { x: 390, y: 382 },
+      { x: 388, y: 550 },
+      { x: 330, y: 676 },
+      { x: 228, y: 718 },
+      { x: 126, y: 678 },
+      { x: 90, y: 580 },
+      { x: 110, y: 460 },
+      { x: 186, y: 382 },
+      { x: 288, y: 392 },
+      { x: 338, y: 486 },
+      { x: 320, y: 598 },
+      { x: 252, y: 648 },
+      { x: 172, y: 620 },
+      { x: 148, y: 538 },
+      { x: 170, y: 456 },
+      { x: 238, y: 424 },
+      { x: 296, y: 458 },
+      { x: 292, y: 530 },
+      { x: 248, y: 566 },
+      { x: 210, y: 548 },
+      { x: 208, y: 496 },
+      { x: 246, y: 468 },
     ];
 
     const sampled = [];
@@ -255,8 +276,8 @@ class ZumaGame {
 
     this.canvas.addEventListener("pointerleave", () => {
       if (!this.pointer.active) {
-        this.pointer.x = this.shooter.x;
-        this.pointer.y = this.shooter.y - 200;
+        this.pointer.x = this.shooter.x + 90;
+        this.pointer.y = this.shooter.y - 120;
       }
     });
 
@@ -305,15 +326,19 @@ class ZumaGame {
     this.updateProjectile(dt);
   }
 
-  // Smooth aim toward the current pointer. Clamping prevents the turret from
-  // rotating through the floor behind the shooter base.
+  // Smooth aim toward the current pointer. With the shooter in the middle of
+  // the board we need near-360-degree rotation, so interpolation follows the
+  // shortest angular path instead of clamping to an upper arc.
   updateAim(dt) {
-    const aimAngle = Math.atan2(
+    const targetAngle = Math.atan2(
       this.pointer.y - this.shooter.y,
       this.pointer.x - this.shooter.x,
     );
-    const clamped = Math.min(-0.15, Math.max(-Math.PI + 0.15, aimAngle));
-    this.shooter.angle += (clamped - this.shooter.angle) * Math.min(1, dt * 10);
+    const delta = Math.atan2(
+      Math.sin(targetAngle - this.shooter.angle),
+      Math.cos(targetAngle - this.shooter.angle),
+    );
+    this.shooter.angle += delta * Math.min(1, dt * 12);
   }
 
   updateChain(dt) {
@@ -767,12 +792,57 @@ class ZumaGame {
       ctx.fill();
     }
 
+    const altarGlow = ctx.createRadialGradient(
+      this.shooter.x,
+      this.shooter.y - 10,
+      18,
+      this.shooter.x,
+      this.shooter.y - 10,
+      138,
+    );
+    altarGlow.addColorStop(0, "rgba(244, 217, 129, 0.18)");
+    altarGlow.addColorStop(1, "rgba(244, 217, 129, 0)");
+    ctx.fillStyle = altarGlow;
+    ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
     ctx.fillStyle = "#102628";
     ctx.beginPath();
+    ctx.ellipse(this.shooter.x, this.shooter.y + 30, 118, 84, 0, 0, TAU);
+    ctx.fill();
+
+    const altar = ctx.createRadialGradient(
+      this.shooter.x - 24,
+      this.shooter.y - 34,
+      16,
+      this.shooter.x,
+      this.shooter.y + 18,
+      112,
+    );
+    altar.addColorStop(0, "#2a5a5d");
+    altar.addColorStop(0.48, "#153739");
+    altar.addColorStop(1, "#0b191b");
+    ctx.fillStyle = altar;
+    ctx.beginPath();
+    ctx.ellipse(this.shooter.x, this.shooter.y + 16, 94, 64, 0, 0, TAU);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(244, 225, 168, 0.14)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(this.shooter.x, this.shooter.y + 16, 84, 56, 0, 0, TAU);
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(7, 18, 19, 0.76)";
+    ctx.beginPath();
+    ctx.ellipse(this.shooter.x, this.shooter.y + 58, 72, 22, 0, 0, TAU);
+    ctx.fill();
+
+    ctx.fillStyle = "rgba(8, 20, 21, 0.55)";
+    ctx.beginPath();
     ctx.moveTo(0, GAME_HEIGHT);
-    ctx.lineTo(0, GAME_HEIGHT - 206);
-    ctx.quadraticCurveTo(110, GAME_HEIGHT - 256, 210, GAME_HEIGHT - 198);
-    ctx.quadraticCurveTo(302, GAME_HEIGHT - 138, GAME_WIDTH, GAME_HEIGHT - 176);
+    ctx.lineTo(0, GAME_HEIGHT - 88);
+    ctx.quadraticCurveTo(88, GAME_HEIGHT - 134, 170, GAME_HEIGHT - 112);
+    ctx.quadraticCurveTo(280, GAME_HEIGHT - 84, GAME_WIDTH, GAME_HEIGHT - 124);
     ctx.lineTo(GAME_WIDTH, GAME_HEIGHT);
     ctx.closePath();
     ctx.fill();
@@ -783,16 +853,16 @@ class ZumaGame {
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
-    ctx.strokeStyle = "rgba(26, 17, 12, 0.72)";
-    ctx.lineWidth = 54;
+    ctx.strokeStyle = "rgba(34, 43, 58, 0.82)";
+    ctx.lineWidth = 36;
     this.strokePath(ctx);
 
-    ctx.strokeStyle = "rgba(147, 121, 72, 0.94)";
-    ctx.lineWidth = 42;
+    ctx.strokeStyle = "rgba(92, 103, 124, 0.96)";
+    ctx.lineWidth = 26;
     this.strokePath(ctx);
 
-    ctx.strokeStyle = "rgba(230, 209, 150, 0.32)";
-    ctx.lineWidth = 12;
+    ctx.strokeStyle = "rgba(198, 210, 228, 0.24)";
+    ctx.lineWidth = 6;
     this.strokePath(ctx);
 
     ctx.restore();
@@ -803,23 +873,23 @@ class ZumaGame {
     ctx.save();
     ctx.translate(goal.x, goal.y);
 
-    const aura = ctx.createRadialGradient(0, 0, 12, 0, 0, 54);
-    aura.addColorStop(0, "rgba(255, 220, 128, 0.34)");
+    const aura = ctx.createRadialGradient(0, 0, 8, 0, 0, 36);
+    aura.addColorStop(0, "rgba(255, 220, 128, 0.28)");
     aura.addColorStop(1, "rgba(255, 220, 128, 0)");
     ctx.fillStyle = aura;
     ctx.beginPath();
-    ctx.arc(0, 0, 54, 0, TAU);
+    ctx.arc(0, 0, 36, 0, TAU);
     ctx.fill();
 
     ctx.fillStyle = "#3f2514";
     ctx.beginPath();
-    ctx.arc(0, 0, 21, 0, TAU);
+    ctx.arc(0, 0, 14, 0, TAU);
     ctx.fill();
 
-    ctx.lineWidth = 5;
+    ctx.lineWidth = 4;
     ctx.strokeStyle = "#d2a85c";
     ctx.beginPath();
-    ctx.arc(0, 0, 26, 0, TAU);
+    ctx.arc(0, 0, 18, 0, TAU);
     ctx.stroke();
 
     ctx.restore();
@@ -862,8 +932,8 @@ class ZumaGame {
   }
 
   drawAimGuide(ctx) {
-    const startX = this.shooter.x + Math.cos(this.shooter.angle) * 74;
-    const startY = this.shooter.y + Math.sin(this.shooter.angle) * 74;
+    const startX = this.shooter.x + Math.cos(this.shooter.angle) * 60;
+    const startY = this.shooter.y + Math.sin(this.shooter.angle) * 60;
     const endX = startX + Math.cos(this.shooter.angle) * AIM_GUIDE_LENGTH;
     const endY = startY + Math.sin(this.shooter.angle) * AIM_GUIDE_LENGTH;
 
@@ -884,39 +954,39 @@ class ZumaGame {
     ctx.save();
     ctx.translate(x, y);
 
-    const base = ctx.createRadialGradient(0, -12, 8, 0, 0, 54);
+    const base = ctx.createRadialGradient(0, -10, 6, 0, 0, 44);
     base.addColorStop(0, "#ecd992");
     base.addColorStop(0.45, "#9f7a3d");
     base.addColorStop(1, "#3c2411");
     ctx.fillStyle = base;
     ctx.beginPath();
-    ctx.arc(0, 0, 42, 0, TAU);
+    ctx.arc(0, 0, 34, 0, TAU);
     ctx.fill();
 
     ctx.fillStyle = "rgba(15, 8, 4, 0.5)";
     ctx.beginPath();
-    ctx.arc(0, 8, 34, 0, TAU);
+    ctx.arc(0, 6, 27, 0, TAU);
     ctx.fill();
 
     ctx.save();
     ctx.rotate(angle);
     ctx.fillStyle = "#6f4d28";
-    this.fillRoundedRect(ctx, -16, -84, 32, 88, 14);
+    this.fillRoundedRect(ctx, -14, -70, 28, 72, 12);
 
-    const barrel = ctx.createLinearGradient(0, -84, 0, 4);
+    const barrel = ctx.createLinearGradient(0, -72, 0, 2);
     barrel.addColorStop(0, "#f6dc8a");
     barrel.addColorStop(0.6, "#a57e45");
     barrel.addColorStop(1, "#43270f");
     ctx.fillStyle = barrel;
-    this.fillRoundedRect(ctx, -11, -96, 22, 92, 12);
+    this.fillRoundedRect(ctx, -9, -82, 18, 80, 10);
     ctx.restore();
 
-    this.drawBall(ctx, 0, -12, BALL_RADIUS + 2, this.currentPaletteIndex, angle * 2.2);
+    this.drawBall(ctx, 0, -10, BALL_RADIUS + 1, this.currentPaletteIndex, angle * 2.2);
     this.drawBall(
       ctx,
-      58,
-      12,
-      BALL_RADIUS - 2,
+      46,
+      10,
+      BALL_RADIUS - 1,
       this.nextPaletteIndex,
       -angle * 1.5,
     );
@@ -930,11 +1000,11 @@ class ZumaGame {
 
     ctx.fillStyle = "#f4e5bd";
     ctx.font = "600 18px Trebuchet MS";
-    ctx.fillText("桌面测试：拖动瞄准，松开鼠标发射", 24, 38);
+    ctx.fillText("中央发射口原型：拖动瞄准，松开鼠标发射", 24, 38);
 
     ctx.fillStyle = "rgba(244, 229, 189, 0.74)";
     ctx.font = "14px Trebuchet MS";
-    ctx.fillText("插入会先让位再并入轨道，消除后也会缓动合拢", 24, 60);
+    ctx.fillText("轨道现在会环绕发射口，接近经典祖马的空间关系", 24, 60);
     ctx.fillText(`当前球链数量: ${this.chain.length}`, 24, 81);
   }
 
