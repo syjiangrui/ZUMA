@@ -2016,13 +2016,35 @@ class ZumaGame {
   // The top overlay is now a real HUD layer: state, score/combo, next ball and
   // touch-friendly restart all live here instead of temporary prototype text.
   drawOverlay(ctx) {
-    this.drawStonePanel(ctx, 16, 14, 232, 92, 22, {
-      top: "#6e7880",
-      bottom: "#57626b",
-      stroke: "rgba(92, 69, 39, 0.92)",
-      innerStroke: "rgba(244, 225, 173, 0.18)",
-      shadow: "rgba(12, 15, 18, 0.18)",
-    });
+    // Stone panel backgrounds are pre-rendered; text is drawn live.
+    if (!this.hudPanelCache) {
+      this.hudPanelCache = document.createElement("canvas");
+      this.hudPanelCache.width = GAME_WIDTH;
+      this.hudPanelCache.height = 120;
+      const hCtx = this.hudPanelCache.getContext("2d");
+      this.drawStonePanel(hCtx, 16, 14, 232, 92, 22, {
+        top: "#6e7880",
+        bottom: "#57626b",
+        stroke: "rgba(92, 69, 39, 0.92)",
+        innerStroke: "rgba(244, 225, 173, 0.18)",
+        shadow: "rgba(12, 15, 18, 0.18)",
+      });
+      this.drawStonePanel(hCtx, 28, 66, 86, 28, 12, {
+        top: "#7a858d",
+        bottom: "#616d75",
+        stroke: "rgba(86, 64, 37, 0.76)",
+        innerStroke: "rgba(246, 229, 183, 0.12)",
+        shadow: "rgba(0, 0, 0, 0.1)",
+      });
+      this.drawStonePanel(hCtx, 120, 66, 118, 28, 12, {
+        top: "#7a858d",
+        bottom: "#616d75",
+        stroke: "rgba(86, 64, 37, 0.76)",
+        innerStroke: "rgba(246, 229, 183, 0.12)",
+        shadow: "rgba(0, 0, 0, 0.1)",
+      });
+    }
+    ctx.drawImage(this.hudPanelCache, 0, 0);
 
     ctx.fillStyle = "#f0d57a";
     ctx.font = "600 18px Georgia";
@@ -2031,21 +2053,6 @@ class ZumaGame {
     ctx.fillStyle = "rgba(242, 229, 198, 0.78)";
     ctx.font = "13px Georgia";
     ctx.fillText("石质祭坛 · 青铜机关", 30, 56);
-
-    this.drawStonePanel(ctx, 28, 66, 86, 28, 12, {
-      top: "#7a858d",
-      bottom: "#616d75",
-      stroke: "rgba(86, 64, 37, 0.76)",
-      innerStroke: "rgba(246, 229, 183, 0.12)",
-      shadow: "rgba(0, 0, 0, 0.1)",
-    });
-    this.drawStonePanel(ctx, 120, 66, 118, 28, 12, {
-      top: "#7a858d",
-      bottom: "#616d75",
-      stroke: "rgba(86, 64, 37, 0.76)",
-      innerStroke: "rgba(246, 229, 183, 0.12)",
-      shadow: "rgba(0, 0, 0, 0.1)",
-    });
 
     ctx.fillStyle = "#e8d7ae";
     ctx.font = "600 13px Georgia";
@@ -2339,13 +2346,9 @@ class ZumaGame {
       ctx.fill();
     }
 
-    // Rolling belt (must be drawn live — rotation changes every frame)
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(0, 0, radius, 0, TAU);
-    ctx.clip();
+    // Rolling belt (must be drawn live — rotation changes every frame).
+    // The band texture handles its own elliptical clip internally.
     this.drawRollingBandTexture(ctx, pattern, radius, rotation);
-    ctx.restore();
 
     // Overlay shading (cached for standard radius)
     if (radius === BALL_RADIUS && this.ballOverCache) {
