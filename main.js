@@ -31,6 +31,11 @@ const GAP_CLOSE_SPEED = 60;
 const SPLIT_CLOSE_SPEED = 84;
 const IMPACT_FADE_SPEED = 7;
 const INSERT_MATCH_DELAY = 0.11;
+const SPLIT_FRONT_PULL_RATIO = 0.5;
+const SPLIT_FRONT_PULL_MAX = 42;
+const SPLIT_FRONT_PULL_MIN_RATIO = 0.52;
+const SPLIT_FRONT_PULL_CURVE = 1.08;
+const SPLIT_FRONT_PULL_SPEED = 96;
 const SPLIT_MERGE_EPSILON = 1.2;
 const TAU = Math.PI * 2;
 
@@ -640,6 +645,7 @@ class ZumaGame {
     // Transition updates happen before positions are recomputed so the current
     // frame already reflects insertion / closure progress.
     this.updateBallTransitions(dt);
+    this.updateSplitFrontPull(dt, this.getSplitGap());
     this.updatePendingMatchChecks(dt);
     this.resolveSplitClosure();
     this.syncChainPositions();
@@ -670,10 +676,11 @@ class ZumaGame {
   syncChainPositions() {
     this.chain.forEach((ball, index) => {
       // Final position = shared chain baseline + this ball's temporary offset.
-      // During a split, chainHeadS stays frozen, so the front segment remains
-      // still while the rear segment advances only by closing its negative gap
-      // offsets back toward zero.
-      ball.s = this.chainHeadS - index * BALL_SPACING + ball.offset;
+      // During a split, chainHeadS stays frozen and the front segment receives
+      // a distributed pullback based on overall seam-closing progress, not just
+      // the last few pixels before merge.
+      const splitOffset = this.getSplitLocalOffset(index);
+      ball.s = this.chainHeadS - index * BALL_SPACING + ball.offset + splitOffset;
       // Rotation is tied to traveled path distance so textured balls look like
       // they are rolling along the track instead of merely sliding.
       ball.rotation = ball.s / ball.radius;
@@ -823,6 +830,79 @@ class ZumaGame {
     );
   }
 
+  getSplitGap() {
+    if (
+      !this.splitState ||
+      this.splitState.index <= 0 ||
+      this.splitState.index >= this.chain.length
+    ) {
+      return null;
+    }
+
+    const frontTail = this.chain[this.splitState.index - 1];
+    const rearHead = this.chain[this.splitState.index];
+    return Math.max(0, frontTail.offset - rearHead.offset);
+  }
+
+  getSplitFrontPullTarget(gap) {
+    const initialGap = this.splitState?.initialGap ?? 0;
+    if (gap === null || initialGap <= 0) {
+      return 0;
+    }
+
+    // Drive front pull by total closure progress across the whole break, not
+    // just by the final proximity window. This lets the front segment visibly
+    // retreat while the rear segment is still covering most of the original
+    // gap, which matches the intended "roughly 50/50" merge feel better.
+    const closedDistance = Math.max(0, initialGap - gap);
+    return Math.min(SPLIT_FRONT_PULL_MAX, closedDistance * SPLIT_FRONT_PULL_RATIO);
+  }
+
+  updateSplitFrontPull(dt, gap) {
+    if (!this.splitState) {
+      return;
+    }
+
+    const targetPull = this.getSplitFrontPullTarget(gap);
+    const currentPull = this.splitState.frontPull ?? 0;
+    const step = SPLIT_FRONT_PULL_SPEED * dt;
+
+    if (currentPull < targetPull) {
+      this.splitState.frontPull = Math.min(targetPull, currentPull + step);
+    } else {
+      this.splitState.frontPull = Math.max(targetPull, currentPull - step);
+    }
+  }
+
+  getSplitLocalOffset(index) {
+    if (
+      !this.splitState ||
+      index >= this.splitState.index ||
+      !this.splitState.frontPull
+    ) {
+      return 0;
+    }
+
+    const frontCount = this.splitState.index;
+    if (frontCount <= 0) {
+      return 0;
+    }
+
+    const seamDistance = this.splitState.index - 1 - index;
+    const normalized =
+      frontCount <= 1 ? 0 : seamDistance / (frontCount - 1);
+    // The whole front chain should release pressure a little when the rear
+    // segment is about to merge. Keep the largest pull at the seam, but never
+    // let the far front balls drop to zero influence, otherwise the recoil
+    // reads like a local glitch instead of a chain-wide pullback.
+    const falloff =
+      SPLIT_FRONT_PULL_MIN_RATIO +
+      (1 - SPLIT_FRONT_PULL_MIN_RATIO) *
+        Math.pow(Math.max(0, 1 - normalized), SPLIT_FRONT_PULL_CURVE);
+
+    return -this.splitState.frontPull * falloff;
+  }
+
   resolveSplitClosure() {
     if (
       !this.splitState ||
@@ -835,10 +915,10 @@ class ZumaGame {
 
     const frontTail = this.chain[this.splitState.index - 1];
     const rearHead = this.chain[this.splitState.index];
-    // In the current split model the whole chain baseline is frozen, so seam
-    // closure is purely about the rear head catching up to the front tail's
-    // temporary offset at the break.
-    const frontExtra = frontTail.offset;
+    // Use the animated front pull for closure so the seam only resolves once
+    // the visible bidirectional merge has substantially played out.
+    const frontExtra =
+      frontTail.offset + this.getSplitLocalOffset(this.splitState.index - 1);
 
     // 后半段真正追上前半段后，才允许重新并成一条链并触发跨接缝连锁判定。
     if (rearHead.offset < frontExtra - SPLIT_MERGE_EPSILON) {
@@ -864,9 +944,27 @@ class ZumaGame {
       return;
     }
 
-    // With the current split model there is no extra segment delta to absorb:
-    // the shared chain baseline stayed frozen while the seam was open, and the
-    // rear segment used only per-ball offsets to close the gap.
+    // Hand off the merge pose into the regular chain state without creating a
+    // short burst of extra forward speed. We move the shared chain baseline
+    // backward by the seam pull amount, then store only the residual per-ball
+    // differences as ordinary offsets. This preserves the visible merge pose,
+    // but lets the chain resume from a globally pulled-back baseline instead of
+    // forcing the entire front segment to "spring" forward via close offsets.
+    const absorbedBaseline = this.getSplitLocalOffset(this.splitState.index - 1);
+    this.chainHeadS += absorbedBaseline;
+
+    for (let index = 0; index < this.chain.length; index += 1) {
+      const localOffset =
+        index < this.splitState.index ? this.getSplitLocalOffset(index) : 0;
+      const residualOffset = localOffset - absorbedBaseline;
+      if (!residualOffset) {
+        continue;
+      }
+
+      this.chain[index].offset += residualOffset;
+      this.chain[index].offsetMode = "close";
+    }
+
     this.splitState = null;
   }
 
@@ -1111,8 +1209,12 @@ class ZumaGame {
     } else if (start > 0 && start < this.chain.length) {
       this.splitState = {
         index: start,
+        frontPull: 0,
+        initialGap: 0,
         actionId: resolvedActionId,
       };
+      this.splitState.initialGap =
+        this.getSplitGap() ?? removedCount * BALL_SPACING;
       // Once a fresh split is created, cross-gap matching is invalid until the
       // rear segment physically reconnects, so we stop here.
       return;
