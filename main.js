@@ -43,6 +43,15 @@ const SPLIT_MERGE_EPSILON = 1.2;
 const MERGE_SETTLE_DURATION = 0.085;
 const MERGE_SETTLE_MIN_SPEED_SCALE = 0.34;
 const TAU = Math.PI * 2;
+
+// Particle system tuning. Particles spawn on ball elimination and fly outward
+// with gravity, shrinking and fading over their lifetime.
+const PARTICLE_COUNT_PER_BALL = 6;
+const PARTICLE_LIFETIME = 0.55;
+const PARTICLE_SPEED_MIN = 60;
+const PARTICLE_SPEED_MAX = 220;
+const PARTICLE_GRAVITY = 320;
+const PARTICLE_MAX_TOTAL = 120;
 // Every palette is paired with one temple glyph family. Color remains the
 // fastest match-read signal, while glyph silhouette is there to support the
 // "ancient relic sphere" mood once the player notices the rolling detail.
@@ -117,6 +126,7 @@ class ZumaGame {
     this.projectile = null;
     this.nextBallId = 1;
     this.pendingMatchChecks = [];
+    this.particles = [];
     this.currentPaletteIndex = 0;
     this.nextPaletteIndex = 0;
     this.shooter = {
@@ -499,6 +509,7 @@ class ZumaGame {
     this.bestCombo = 0;
     this.mergeSettle = null;
     this.chainIntro = null;
+    this.particles = [];
     this.score = 0;
     this.currentPaletteIndex = this.getRandomPaletteIndex();
     this.nextPaletteIndex = this.getRandomPaletteIndex();
@@ -837,6 +848,7 @@ class ZumaGame {
 
   update(dt) {
     this.updateHudState(dt);
+    this.updateParticles(dt);
     if (!this.isRoundPlaying()) {
       return;
     }
@@ -1290,6 +1302,70 @@ class ZumaGame {
     this.chain[index].impact = Math.max(this.chain[index].impact, amount);
   }
 
+  // --- Particle system ---------------------------------------------------
+
+  // Spawn debris particles at the screen position of each eliminated ball.
+  // Called from resolveMatchesFrom() just before the chain splice.
+  spawnMatchParticles(startIndex, count, paletteIndex) {
+    const palette = BALL_PALETTES[paletteIndex];
+    const colors = [palette.base, palette.bright, palette.accent];
+
+    for (let i = 0; i < count; i++) {
+      const ball = this.chain[startIndex + i];
+      const pt = this.getPointAtDistance(ball.s);
+
+      for (let j = 0; j < PARTICLE_COUNT_PER_BALL; j++) {
+        if (this.particles.length >= PARTICLE_MAX_TOTAL) {
+          // Evict the oldest particle to stay within budget
+          this.particles.shift();
+        }
+        const angle = Math.random() * TAU;
+        const speed =
+          PARTICLE_SPEED_MIN +
+          Math.random() * (PARTICLE_SPEED_MAX - PARTICLE_SPEED_MIN);
+        this.particles.push({
+          x: pt.x,
+          y: pt.y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 40, // slight upward bias
+          age: 0,
+          lifetime: PARTICLE_LIFETIME * (0.7 + Math.random() * 0.6),
+          size: 2.5 + Math.random() * 3,
+          color: colors[(j + i) % colors.length],
+        });
+      }
+    }
+  }
+
+  updateParticles(dt) {
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.age += dt;
+      if (p.age >= p.lifetime) {
+        this.particles.splice(i, 1);
+        continue;
+      }
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += PARTICLE_GRAVITY * dt;
+    }
+  }
+
+  drawParticles(ctx) {
+    for (const p of this.particles) {
+      const t = p.age / p.lifetime; // 0→1
+      const alpha = 1 - t * t; // fade out (quadratic)
+      const scale = 1 - t * 0.5; // shrink to 50%
+      const r = p.size * scale;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, TAU);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
   updateProjectile(dt) {
     if (!this.projectile) {
       return;
@@ -1489,6 +1565,11 @@ class ZumaGame {
 
     const removedCount = end - start + 1;
     this.recordMatchEvent({ actionId: resolvedActionId, removedCount, trigger });
+
+    // Spawn debris particles at each eliminated ball's position BEFORE the
+    // splice removes them from the chain array.
+    this.spawnMatchParticles(start, removedCount, color);
+
     this.chain.splice(start, removedCount);
 
     // Every ball behind the removed group needs temporary negative offset so it
@@ -1555,6 +1636,7 @@ class ZumaGame {
     // Static scene (background + track + goal) is pre-rendered once
     ctx.drawImage(this.staticSceneCache, 0, 0);
     this.drawChain(ctx);
+    this.drawParticles(ctx);
     this.drawProjectile(ctx);
     this.drawAimGuide(ctx);
     this.drawShooter(ctx);
