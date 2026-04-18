@@ -262,6 +262,14 @@ class ZumaGame {
     });
 
     this.totalPathLength = total;
+
+    // Pre-build a Path2D so drawTrack() can stroke it without rebuilding
+    // 616 lineTo calls three times per frame.
+    this.cachedTrackPath = new Path2D();
+    this.cachedTrackPath.moveTo(this.pathPoints[0].x, this.pathPoints[0].y);
+    for (let i = 1; i < this.pathPoints.length; i += 1) {
+      this.cachedTrackPath.lineTo(this.pathPoints[i].x, this.pathPoints[i].y);
+    }
   }
 
   createTextures() {
@@ -271,6 +279,171 @@ class ZumaGame {
         TEMPLE_GLYPH_VARIANTS[index % TEMPLE_GLYPH_VARIANTS.length],
       ),
     );
+    this.createBallRenderCache();
+    this.createFrogCache();
+    this.createStaticSceneCache();
+  }
+
+  // Background, track and goal never change after path creation. Render them
+  // once to an offscreen canvas and blit every frame instead of rebuilding
+  // ~20 gradients + 1848 lineTo ops each time.
+  createStaticSceneCache() {
+    const cache = document.createElement("canvas");
+    cache.width = GAME_WIDTH;
+    cache.height = GAME_HEIGHT;
+    const cCtx = cache.getContext("2d");
+    this.drawBackground(cCtx);
+    this.drawTrack(cCtx);
+    this.drawGoal(cCtx);
+    this.staticSceneCache = cache;
+  }
+
+  // Pre-render each palette's stone-body gradient, edge stroke, matte shading,
+  // and worn-bloom highlight to offscreen canvases. At runtime drawBall() just
+  // does drawImage instead of creating 5 gradients per ball per frame.
+  // Two layers per palette:
+  //   ballBaseCache[i]  — body gradient + edge stroke (drawn UNDER the belt)
+  //   ballOverCache[i]  — matteShade + wornBloom + worn arc (drawn OVER the belt)
+  // Plus one shared impact-aura cache (palette-independent).
+  createBallRenderCache() {
+    const r = BALL_RADIUS;
+    const pad = 4;          // extra pixels for anti-aliased edges
+    const size = (r + pad) * 2;
+    const cx = r + pad;
+
+    this.ballBaseCache = [];
+    this.ballOverCache = [];
+    this.ballCachePad = pad;
+
+    for (let i = 0; i < BALL_PALETTES.length; i++) {
+      const palette = BALL_PALETTES[i];
+
+      // --- Base layer: body gradient + edge stroke ---
+      const base = document.createElement("canvas");
+      base.width = size;
+      base.height = size;
+      const bCtx = base.getContext("2d");
+      bCtx.translate(cx, cx);
+
+      const body = bCtx.createRadialGradient(
+        -r * 0.32, -r * 0.4, r * 0.28, 0, 0, r,
+      );
+      body.addColorStop(0, palette.bright);
+      body.addColorStop(0.54, palette.base);
+      body.addColorStop(0.84, palette.base);
+      body.addColorStop(1, palette.dark);
+      bCtx.fillStyle = body;
+      bCtx.beginPath();
+      bCtx.arc(0, 0, r, 0, TAU);
+      bCtx.fill();
+
+      this.ballBaseCache[i] = base;
+    }
+
+    // --- Overlay layer: matteShade + edge stroke + wornBloom + worn arc ---
+    // These gradients only depend on radius, not palette, so one canvas for all.
+    const over = document.createElement("canvas");
+    over.width = size;
+    over.height = size;
+    const oCtx = over.getContext("2d");
+    oCtx.translate(cx, cx);
+
+    const matteShade = oCtx.createRadialGradient(
+      r * 0.34, r * 0.42, r * 0.12, r * 0.24, r * 0.32, r * 1.08,
+    );
+    matteShade.addColorStop(0, "rgba(58, 40, 26, 0.01)");
+    matteShade.addColorStop(0.5, "rgba(58, 40, 26, 0.05)");
+    matteShade.addColorStop(1, "rgba(58, 40, 26, 0.1)");
+    oCtx.fillStyle = matteShade;
+    oCtx.beginPath();
+    oCtx.arc(0, 0, r, 0, TAU);
+    oCtx.fill();
+
+    oCtx.strokeStyle = "rgba(122, 96, 68, 0.18)";
+    oCtx.lineWidth = 1.15;
+    oCtx.beginPath();
+    oCtx.arc(0, 0, r - 0.8, 0, TAU);
+    oCtx.stroke();
+
+    const wornBloom = oCtx.createRadialGradient(
+      -r * 0.34, -r * 0.42, r * 0.02, -r * 0.34, -r * 0.42, r * 0.68,
+    );
+    wornBloom.addColorStop(0, "rgba(252, 236, 192, 0.3)");
+    wornBloom.addColorStop(0.38, "rgba(252, 236, 192, 0.16)");
+    wornBloom.addColorStop(1, "rgba(252, 236, 192, 0)");
+    oCtx.fillStyle = wornBloom;
+    oCtx.beginPath();
+    oCtx.arc(0, 0, r, 0, TAU);
+    oCtx.fill();
+
+    oCtx.strokeStyle = "rgba(234, 206, 144, 0.16)";
+    oCtx.lineWidth = 1.1;
+    oCtx.beginPath();
+    oCtx.arc(0, 0, r - 1.7, -2.48, -1.12);
+    oCtx.stroke();
+
+    this.ballOverCache = over;
+
+    // --- Band shading overlay (topBottom + side fade) ---
+    // Only depends on radius, shared across all palettes.
+    const bandShade = document.createElement("canvas");
+    const bsSize = Math.ceil(r * 2.2);
+    bandShade.width = bsSize;
+    bandShade.height = bsSize;
+    const bsCtx = bandShade.getContext("2d");
+    const bsR = bsSize / 2;
+    bsCtx.translate(bsR, bsR);
+
+    const topBottomShade = bsCtx.createLinearGradient(0, -r * 0.82, 0, r * 0.82);
+    topBottomShade.addColorStop(0, "rgba(27, 18, 12, 0.22)");
+    topBottomShade.addColorStop(0.16, "rgba(19, 12, 8, 0)");
+    topBottomShade.addColorStop(0.84, "rgba(19, 12, 8, 0)");
+    topBottomShade.addColorStop(1, "rgba(27, 18, 12, 0.24)");
+    bsCtx.fillStyle = topBottomShade;
+    bsCtx.fillRect(-bsR, -bsR, bsSize, bsSize);
+
+    const sideShade = bsCtx.createLinearGradient(-r, 0, r, 0);
+    sideShade.addColorStop(0, "rgba(34, 22, 14, 0.17)");
+    sideShade.addColorStop(0.16, "rgba(26, 15, 9, 0)");
+    sideShade.addColorStop(0.84, "rgba(26, 15, 9, 0)");
+    sideShade.addColorStop(1, "rgba(34, 22, 14, 0.18)");
+    bsCtx.fillStyle = sideShade;
+    bsCtx.fillRect(-bsR, -bsR, bsSize, bsSize);
+
+    this.bandShadeCache = bandShade;
+  }
+
+  // Pre-render the stone frog to two offscreen canvases so drawShooter() only
+  // needs rotate + drawImage instead of rebuilding ~7 gradients every frame.
+  // Split into "behind the ball" and "in front of the ball" layers so the
+  // upper jaw still overlaps the held ball at runtime.
+  createFrogCache() {
+    const size = 140;
+    const cx = size / 2;
+    const cy = size / 2 + 4; // slight downward bias to center the body
+
+    // --- Layer 1: body + lower jaw + mouth cavity + belly socket ---
+    const behind = document.createElement("canvas");
+    behind.width = size;
+    behind.height = size;
+    const bCtx = behind.getContext("2d");
+    bCtx.translate(cx, cy);
+    this.drawFrogBody(bCtx);
+    this.drawFrogJawBehind(bCtx);
+    this.drawFrogBellySocket(bCtx);
+    this.frogCacheBehind = behind;
+    this.frogCacheCx = cx;
+    this.frogCacheCy = cy;
+
+    // --- Layer 2: upper jaw + nostrils + bronze accents + eyes ---
+    const front = document.createElement("canvas");
+    front.width = size;
+    front.height = size;
+    const fCtx = front.getContext("2d");
+    fCtx.translate(cx, cy);
+    this.drawFrogJawFront(fCtx);
+    this.drawFrogEyes(fCtx);
+    this.frogCacheFront = front;
   }
 
   // Reset the chain itself to a packed line of balls. Round-scoped state such
@@ -1379,9 +1552,8 @@ class ZumaGame {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    this.drawBackground(ctx);
-    this.drawTrack(ctx);
-    this.drawGoal(ctx);
+    // Static scene (background + track + goal) is pre-rendered once
+    ctx.drawImage(this.staticSceneCache, 0, 0);
     this.drawChain(ctx);
     this.drawProjectile(ctx);
     this.drawAimGuide(ctx);
@@ -1608,6 +1780,8 @@ class ZumaGame {
 
   drawShooter(ctx) {
     const { x, y, angle } = this.shooter;
+    const cx = this.frogCacheCx;
+    const cy = this.frogCacheCy;
 
     ctx.save();
     ctx.translate(x, y);
@@ -1619,20 +1793,19 @@ class ZumaGame {
     ctx.fill();
 
     // --- Rotate entire frog to face the aim direction ---
-    // angle convention: -PI/2 = up. Frog art faces local −Y, so offset by PI/2.
     ctx.rotate(angle + Math.PI * 0.5);
 
-    // --- 2. Frog body ---
-    this.drawFrogBody(ctx);
+    // --- 2. Cached layer: body + lower jaw + mouth cavity + belly socket ---
+    ctx.drawImage(this.frogCacheBehind, -cx, -cy);
 
-    // --- 3. Head / mouth with current ball ---
-    this.drawFrogHead(ctx, angle);
+    // --- 3. Live ball inside the mouth (palette/rotation change each frame) ---
+    this.drawBall(ctx, 0, -34, BALL_RADIUS, this.currentPaletteIndex, angle * 2.2);
 
-    // --- 4. Eyes ---
-    this.drawFrogEyes(ctx);
+    // --- 4. Cached layer: upper jaw + eyes (overlaps ball top) ---
+    ctx.drawImage(this.frogCacheFront, -cx, -cy);
 
-    // --- 5. Next ball preview in belly socket ---
-    this.drawFrogBellyBall(ctx);
+    // --- 5. Live next-ball preview in belly socket ---
+    this.drawBall(ctx, 0, 32, BALL_RADIUS - 1, this.nextPaletteIndex, -angle * 1.5);
 
     ctx.restore();
   }
@@ -1699,16 +1872,13 @@ class ZumaGame {
     }
   }
 
-  // Head / mouth drawing. The whole frog is already rotated by drawShooter(),
-  // so this just draws the head shape in local space (mouth faces −Y).
-  // Draw order: lower jaw → mouth cavity → ball → upper jaw (overlapping ball).
-  drawFrogHead(ctx, angle) {
-    const headLen = 52;   // center to snout tip
-    const headW = 28;     // half-width at base
-    const mouthW = 18;    // half-width at snout
-    const ballDist = 34;  // ball center distance from frog center
+  // Lower jaw + mouth cavity — drawn BEHIND the ball in the frog cache.
+  drawFrogJawBehind(ctx) {
+    const headLen = 52;
+    const headW = 28;
+    const mouthW = 18;
+    const ballDist = 34;
 
-    // --- Lower jaw (behind the ball) ---
     ctx.beginPath();
     ctx.moveTo(-headW, 4);
     ctx.bezierCurveTo(-headW, -14, -mouthW, -headLen + 10, -mouthW + 3, -headLen + 2);
@@ -1725,33 +1895,25 @@ class ZumaGame {
     ctx.lineWidth = 1.2;
     ctx.stroke();
 
-    // --- Mouth cavity (dark interior) ---
+    // Mouth cavity
     ctx.beginPath();
     ctx.ellipse(0, -ballDist, mouthW - 3, 14, 0, 0, TAU);
     ctx.fillStyle = "#16110e";
     ctx.fill();
+  }
 
-    // --- Current ball inside the mouth ---
-    this.drawBall(
-      ctx, 0, -ballDist, BALL_RADIUS, this.currentPaletteIndex, angle * 2.2,
-    );
+  // Upper jaw / snout + nostrils + bronze accents — drawn IN FRONT of the ball.
+  drawFrogJawFront(ctx) {
+    const headLen = 52;
+    const headW = 28;
+    const mouthW = 18;
 
-    // --- Upper jaw / snout (overlaps top of ball for "held" look) ---
     ctx.beginPath();
     ctx.moveTo(-headW + 2, 2);
-    ctx.bezierCurveTo(
-      -headW + 2, -10,
-      -mouthW + 1, -headLen + 14,
-      -mouthW + 5, -headLen + 2,
-    );
-    // Snout tip — slight V notch for the opening
+    ctx.bezierCurveTo(-headW + 2, -10, -mouthW + 1, -headLen + 14, -mouthW + 5, -headLen + 2);
     ctx.quadraticCurveTo(-3, -headLen - 4, 0, -headLen - 2);
     ctx.quadraticCurveTo(3, -headLen - 4, mouthW - 5, -headLen + 2);
-    ctx.bezierCurveTo(
-      mouthW - 1, -headLen + 14,
-      headW - 2, -10,
-      headW - 2, 2,
-    );
+    ctx.bezierCurveTo(mouthW - 1, -headLen + 14, headW - 2, -10, headW - 2, 2);
     ctx.closePath();
 
     const snoutGrad = ctx.createLinearGradient(0, 2, 0, -headLen);
@@ -1764,7 +1926,7 @@ class ZumaGame {
     ctx.lineWidth = 1.2;
     ctx.stroke();
 
-    // Nostrils near the snout tip
+    // Nostrils
     ctx.fillStyle = "#2a2420";
     ctx.beginPath();
     ctx.arc(-7, -headLen + 6, 2.2, 0, TAU);
@@ -1783,6 +1945,17 @@ class ZumaGame {
     ctx.beginPath();
     ctx.moveTo(headW - 5, 0);
     ctx.quadraticCurveTo(mouthW - 2, -headLen + 14, mouthW - 6, -headLen + 4);
+    ctx.stroke();
+  }
+
+  // Belly socket only (no ball) — baked into the frog cache.
+  drawFrogBellySocket(ctx) {
+    ctx.beginPath();
+    ctx.arc(0, 32, BALL_RADIUS + 3, 0, TAU);
+    ctx.fillStyle = "#2a2520";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(180, 148, 60, 0.45)";
+    ctx.lineWidth = 1.8;
     ctx.stroke();
   }
 
@@ -1838,25 +2011,7 @@ class ZumaGame {
     }
   }
 
-  // Next ball sits in a small carved socket on the frog's belly.
-  drawFrogBellyBall(ctx) {
-    const nx = 0;
-    const ny = 32;
-
-    // Recessed stone socket
-    ctx.beginPath();
-    ctx.arc(nx, ny, BALL_RADIUS + 3, 0, TAU);
-    ctx.fillStyle = "#2a2520";
-    ctx.fill();
-    ctx.strokeStyle = "rgba(180, 148, 60, 0.45)";
-    ctx.lineWidth = 1.8;
-    ctx.stroke();
-
-    // The preview ball (slightly smaller)
-    this.drawBall(
-      ctx, nx, ny, BALL_RADIUS - 1, this.nextPaletteIndex, -this.shooter.angle * 1.5,
-    );
-  }
+  // (drawFrogBellyBall removed — socket is cached, ball drawn live in drawShooter)
 
   // The top overlay is now a real HUD layer: state, score/combo, next ball and
   // touch-friendly restart all live here instead of temporary prototype text.
@@ -2139,24 +2294,20 @@ class ZumaGame {
     ctx.restore();
   }
 
+  // Optimized ball renderer. Static gradient layers (body, matte shade, worn
+  // bloom, edge strokes) are pre-baked in createBallRenderCache(). Only the
+  // rolling band texture is drawn live each frame (it depends on rotation).
+  // This reduces per-ball gradient creation from 5 to 0.
   drawBall(ctx, x, y, radius, paletteIndex, rotation, impact = 0) {
-    const palette = BALL_PALETTES[paletteIndex];
     const pattern = this.ballPatterns[paletteIndex];
-    // Ball rendering is layered on purpose:
-    // 1. broad stone body
-    // 2. rolling symbol belt
-    // 3. matte re-shading to push the belt back into the sphere
-    // 4. restrained wear highlight
-    // Keeping these layers separate makes Phase 3 material tuning practical:
-    // we can change "stone", "carving", and "polish" independently.
-    // impact slightly enlarges the ball and adds an aura so collision / seam
-    // events read even before we introduce particles.
+    const pad = this.ballCachePad;
     const scale = 1 + impact * 0.08;
 
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(scale, scale);
 
+    // Impact aura (only when ball is freshly hit — rare, ok to create live)
     if (impact > 0.02) {
       const aura = ctx.createRadialGradient(0, 0, radius * 0.6, 0, 0, radius * 1.55);
       aura.addColorStop(0, "rgba(255, 249, 214, 0)");
@@ -2168,88 +2319,43 @@ class ZumaGame {
       ctx.fill();
     }
 
-    // Broad, low-contrast body lighting reads closer to carved stone than to a
-    // glossy marble. The dark edge is delayed so the ball stays readable on a
-    // phone even after the belt texture and extra shading are composited.
-    const body = ctx.createRadialGradient(
-      -radius * 0.32,
-      -radius * 0.4,
-      radius * 0.28,
-      0,
-      0,
-      radius,
-    );
-    body.addColorStop(0, palette.bright);
-    body.addColorStop(0.54, palette.base);
-    body.addColorStop(0.84, palette.base);
-    body.addColorStop(1, palette.dark);
-    ctx.fillStyle = body;
-    ctx.beginPath();
-    ctx.arc(0, 0, radius, 0, TAU);
-    ctx.fill();
+    // Use cached base if this is the standard ball radius, otherwise fall back
+    // to a simple solid fill for non-standard sizes (e.g. preview balls).
+    const baseImg = radius === BALL_RADIUS ? this.ballBaseCache[paletteIndex] : null;
+    if (baseImg) {
+      ctx.drawImage(baseImg, -(radius + pad), -(radius + pad));
+    } else {
+      const palette = BALL_PALETTES[paletteIndex];
+      const body = ctx.createRadialGradient(
+        -radius * 0.32, -radius * 0.4, radius * 0.28, 0, 0, radius,
+      );
+      body.addColorStop(0, palette.bright);
+      body.addColorStop(0.54, palette.base);
+      body.addColorStop(0.84, palette.base);
+      body.addColorStop(1, palette.dark);
+      ctx.fillStyle = body;
+      ctx.beginPath();
+      ctx.arc(0, 0, radius, 0, TAU);
+      ctx.fill();
+    }
 
+    // Rolling belt (must be drawn live — rotation changes every frame)
     ctx.save();
     ctx.beginPath();
     ctx.arc(0, 0, radius, 0, TAU);
     ctx.clip();
-    // The belt layer is clipped inside the sphere before any matte shading is
-    // re-applied. That order matters: the texture should inherit the ball's
-    // stone volume, not flatten it.
     this.drawRollingBandTexture(ctx, pattern, radius, rotation);
     ctx.restore();
 
-    // Re-darken the lower/right side after the moving belt has been added. This
-    // keeps the texture from reading as a flat sticker when the ball rotates.
-    const matteShade = ctx.createRadialGradient(
-      radius * 0.34,
-      radius * 0.42,
-      radius * 0.12,
-      radius * 0.24,
-      radius * 0.32,
-      radius * 1.08,
-    );
-    matteShade.addColorStop(0, "rgba(58, 40, 26, 0.01)");
-    matteShade.addColorStop(0.5, "rgba(58, 40, 26, 0.05)");
-    matteShade.addColorStop(1, "rgba(58, 40, 26, 0.1)");
-    ctx.fillStyle = matteShade;
-    ctx.beginPath();
-    ctx.arc(0, 0, radius, 0, TAU);
-    ctx.fill();
-
-    ctx.strokeStyle = "rgba(122, 96, 68, 0.18)";
-    ctx.lineWidth = 1.15;
-    ctx.beginPath();
-    ctx.arc(0, 0, radius - 0.8, 0, TAU);
-    ctx.stroke();
-
-    // This is not a sharp specular highlight. It is a warm worn area so the
-    // ball still feels like polished stone rather than glass.
-    const wornBloom = ctx.createRadialGradient(
-      -radius * 0.34,
-      -radius * 0.42,
-      radius * 0.02,
-      -radius * 0.34,
-      -radius * 0.42,
-      radius * 0.68,
-    );
-    wornBloom.addColorStop(0, "rgba(252, 236, 192, 0.3)");
-    wornBloom.addColorStop(0.38, "rgba(252, 236, 192, 0.16)");
-    wornBloom.addColorStop(1, "rgba(252, 236, 192, 0)");
-    ctx.fillStyle = wornBloom;
-    ctx.beginPath();
-    ctx.arc(0, 0, radius, 0, TAU);
-    ctx.fill();
-
-    // A short warm wear mark reads more like polished stone than a full glossy rim.
-    ctx.strokeStyle = "rgba(234, 206, 144, 0.16)";
-    ctx.lineWidth = 1.1;
-    ctx.beginPath();
-    ctx.arc(0, 0, radius - 1.7, -2.48, -1.12);
-    ctx.stroke();
+    // Overlay shading (cached for standard radius)
+    if (radius === BALL_RADIUS && this.ballOverCache) {
+      ctx.drawImage(this.ballOverCache, -(radius + pad), -(radius + pad));
+    }
 
     ctx.restore();
   }
 
+  // Rolling belt texture + cached band shading overlay.
   drawRollingBandTexture(ctx, pattern, radius, rotation) {
     const sourceWidth = pattern.width;
     const sourceHeight = pattern.height;
@@ -2259,12 +2365,6 @@ class ZumaGame {
     const bandHeight = radius * 1.42;
     const offset = (((rotation / TAU) % 1 + 1) % 1) * bandWidth;
 
-    // We intentionally fake only the equatorial part of the sphere instead of
-    // trying to project a full texture map over the whole ball. That earlier
-    // approach looked mathematically clever but visually wrong: it stretched the
-    // center and made the emblem read like a distorted front decal. The current
-    // belt model gives up some physical correctness in exchange for a much
-    // cleaner "this carved band is rotating around a stone sphere" read.
     ctx.save();
     ctx.beginPath();
     ctx.ellipse(0, 0, radius * 0.98, radius * 0.8, 0, 0, TAU);
@@ -2272,36 +2372,33 @@ class ZumaGame {
 
     for (let dx = -bandWidth - offset; dx < radius * 1.2; dx += bandWidth) {
       ctx.drawImage(
-        pattern,
-        0,
-        sourceY,
-        sourceWidth,
-        sourceH,
-        dx,
-        -bandHeight * 0.5,
-        bandWidth,
-        bandHeight,
+        pattern, 0, sourceY, sourceWidth, sourceH,
+        dx, -bandHeight * 0.5, bandWidth, bandHeight,
       );
     }
 
-    // Extra top/bottom and side shading compresses the belt back into the body.
-    // Without these passes, the moving band looks like a flat strip scrolling
-    // across the circle instead of a wrapped ring carved into a sphere.
-    const topBottomShade = ctx.createLinearGradient(0, -radius * 0.82, 0, radius * 0.82);
-    topBottomShade.addColorStop(0, "rgba(27, 18, 12, 0.22)");
-    topBottomShade.addColorStop(0.16, "rgba(19, 12, 8, 0)");
-    topBottomShade.addColorStop(0.84, "rgba(19, 12, 8, 0)");
-    topBottomShade.addColorStop(1, "rgba(27, 18, 12, 0.24)");
-    ctx.fillStyle = topBottomShade;
-    ctx.fillRect(-radius, -radius, radius * 2, radius * 2);
+    // Band edge shading — use cached canvas instead of creating 2 gradients
+    if (radius === BALL_RADIUS && this.bandShadeCache) {
+      const bs = this.bandShadeCache;
+      ctx.drawImage(bs, -bs.width / 2, -bs.height / 2);
+    } else {
+      // Fallback for non-standard radius
+      const topBottomShade = ctx.createLinearGradient(0, -radius * 0.82, 0, radius * 0.82);
+      topBottomShade.addColorStop(0, "rgba(27, 18, 12, 0.22)");
+      topBottomShade.addColorStop(0.16, "rgba(19, 12, 8, 0)");
+      topBottomShade.addColorStop(0.84, "rgba(19, 12, 8, 0)");
+      topBottomShade.addColorStop(1, "rgba(27, 18, 12, 0.24)");
+      ctx.fillStyle = topBottomShade;
+      ctx.fillRect(-radius, -radius, radius * 2, radius * 2);
 
-    const sideShade = ctx.createLinearGradient(-radius, 0, radius, 0);
-    sideShade.addColorStop(0, "rgba(34, 22, 14, 0.17)");
-    sideShade.addColorStop(0.16, "rgba(26, 15, 9, 0)");
-    sideShade.addColorStop(0.84, "rgba(26, 15, 9, 0)");
-    sideShade.addColorStop(1, "rgba(34, 22, 14, 0.18)");
-    ctx.fillStyle = sideShade;
-    ctx.fillRect(-radius, -radius, radius * 2, radius * 2);
+      const sideShade = ctx.createLinearGradient(-radius, 0, radius, 0);
+      sideShade.addColorStop(0, "rgba(34, 22, 14, 0.17)");
+      sideShade.addColorStop(0.16, "rgba(26, 15, 9, 0)");
+      sideShade.addColorStop(0.84, "rgba(26, 15, 9, 0)");
+      sideShade.addColorStop(1, "rgba(34, 22, 14, 0.18)");
+      ctx.fillStyle = sideShade;
+      ctx.fillRect(-radius, -radius, radius * 2, radius * 2);
+    }
 
     ctx.restore();
   }
@@ -2324,14 +2421,7 @@ class ZumaGame {
   }
 
   strokePath(ctx) {
-    ctx.beginPath();
-    ctx.moveTo(this.pathPoints[0].x, this.pathPoints[0].y);
-
-    for (let i = 1; i < this.pathPoints.length; i += 1) {
-      ctx.lineTo(this.pathPoints[i].x, this.pathPoints[i].y);
-    }
-
-    ctx.stroke();
+    ctx.stroke(this.cachedTrackPath);
   }
 
   getPointAtDistance(s) {
