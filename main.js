@@ -37,6 +37,8 @@ const SPLIT_FRONT_PULL_MIN_RATIO = 0.52;
 const SPLIT_FRONT_PULL_CURVE = 1.08;
 const SPLIT_FRONT_PULL_SPEED = 96;
 const SPLIT_MERGE_EPSILON = 1.2;
+const MERGE_SETTLE_DURATION = 0.085;
+const MERGE_SETTLE_MIN_SPEED_SCALE = 0.34;
 const TAU = Math.PI * 2;
 
 // Programmatic palettes used both for initial chain colors and procedural ball
@@ -129,6 +131,9 @@ class ZumaGame {
     this.matchFeedback = null;
     this.recentCombo = null;
     this.bestCombo = 0;
+    // mergeSettle is a tiny post-merge dampening window. It gives the seam a
+    // moment to "land" before the chain resumes full conveyor speed.
+    this.mergeSettle = null;
     this.lastTime = 0;
 
     this.createPath();
@@ -259,6 +264,7 @@ class ZumaGame {
     this.matchFeedback = null;
     this.recentCombo = null;
     this.bestCombo = 0;
+    this.mergeSettle = null;
     this.score = 0;
     this.currentPaletteIndex = this.getRandomPaletteIndex();
     this.nextPaletteIndex = this.getRandomPaletteIndex();
@@ -635,8 +641,12 @@ class ZumaGame {
       return;
     }
 
+    // Merge settle is evaluated before baseline motion. This way a freshly
+    // rejoined chain can briefly "land" and then ramp back into normal
+    // conveyor motion without fighting the split closure math.
+    this.updateMergeSettle(dt);
     if (!this.splitState) {
-      this.chainHeadS += CHAIN_SPEED * dt;
+      this.chainHeadS += CHAIN_SPEED * dt * this.getChainSpeedScale();
     }
     // Once the chain is broken, keep the shared baseline still and let the rear
     // segment close the gap only through its own "close" offsets. This avoids
@@ -653,6 +663,33 @@ class ZumaGame {
     const tailS = this.chain[this.chain.length - 1].s;
     if (tailS > this.totalPathLength + EXIT_GAP) {
       this.setGameState("lose");
+    }
+  }
+
+  // After a seam rejoins, briefly hold back the shared conveyor so the merge
+  // reads as contact/settle rather than an immediate full-speed carry-on.
+  getChainSpeedScale() {
+    if (!this.mergeSettle) {
+      return 1;
+    }
+
+    const progress =
+      1 - this.mergeSettle.timer / this.mergeSettle.duration;
+    const eased = progress * progress * (3 - 2 * progress);
+    return (
+      MERGE_SETTLE_MIN_SPEED_SCALE +
+      (1 - MERGE_SETTLE_MIN_SPEED_SCALE) * eased
+    );
+  }
+
+  updateMergeSettle(dt) {
+    if (!this.mergeSettle) {
+      return;
+    }
+
+    this.mergeSettle.timer = Math.max(0, this.mergeSettle.timer - dt);
+    if (this.mergeSettle.timer <= 0) {
+      this.mergeSettle = null;
     }
   }
 
@@ -841,6 +878,9 @@ class ZumaGame {
 
     const frontTail = this.chain[this.splitState.index - 1];
     const rearHead = this.chain[this.splitState.index];
+    // A split gap is represented entirely in offset space while chainHeadS is
+    // frozen. Once the front tail offset and rear head offset meet, the seam is
+    // logically ready to rejoin.
     return Math.max(0, frontTail.offset - rearHead.offset);
   }
 
@@ -863,6 +903,9 @@ class ZumaGame {
       return;
     }
 
+    // frontPull is animated toward its target instead of snapping so the whole
+    // front segment appears to get drawn back by chain tension, rather than
+    // teleporting into a new pose when the seam nears closure.
     const targetPull = this.getSplitFrontPullTarget(gap);
     const currentPull = this.splitState.frontPull ?? 0;
     const step = SPLIT_FRONT_PULL_SPEED * dt;
@@ -920,7 +963,9 @@ class ZumaGame {
     const frontExtra =
       frontTail.offset + this.getSplitLocalOffset(this.splitState.index - 1);
 
-    // 后半段真正追上前半段后，才允许重新并成一条链并触发跨接缝连锁判定。
+    // The seam should not rejoin the moment the nominal gap is gone. We wait
+    // until the rear head has actually met the animated front seam position,
+    // otherwise the front pullback would be cut off visually.
     if (rearHead.offset < frontExtra - SPLIT_MERGE_EPSILON) {
       return;
     }
@@ -934,8 +979,7 @@ class ZumaGame {
     const seamIndex = this.splitState.index - 1;
     const seamActionId = this.splitState.actionId;
     this.absorbSplitState();
-    this.addImpact(seamIndex, 0.78);
-    this.addImpact(seamIndex + 1, 0.78);
+    this.triggerMergeSettle(seamIndex);
     this.queueAdjacentMatchChecks(seamIndex, seamIndex + 1, seamActionId, 0.03, "seam");
   }
 
@@ -945,11 +989,10 @@ class ZumaGame {
     }
 
     // Hand off the merge pose into the regular chain state without creating a
-    // short burst of extra forward speed. We move the shared chain baseline
-    // backward by the seam pull amount, then store only the residual per-ball
-    // differences as ordinary offsets. This preserves the visible merge pose,
-    // but lets the chain resume from a globally pulled-back baseline instead of
-    // forcing the entire front segment to "spring" forward via close offsets.
+    // short burst of extra forward speed. The seam-side pull becomes a shared
+    // baseline shift on chainHeadS, while only the per-ball differences remain
+    // as ordinary offsets. That preserves the visible "pulled back" pose and
+    // avoids a frame where the front segment jumps or surges forward.
     const absorbedBaseline = this.getSplitLocalOffset(this.splitState.index - 1);
     this.chainHeadS += absorbedBaseline;
 
@@ -966,6 +1009,27 @@ class ZumaGame {
     }
 
     this.splitState = null;
+  }
+
+  triggerMergeSettle(seamIndex) {
+    // This is intentionally tiny. It is not a new simulation state; it only
+    // dampens the first few frames after a seam rejoins so the contact reads as
+    // impact/settle instead of an abrupt return to full conveyor speed.
+    this.mergeSettle = {
+      timer: MERGE_SETTLE_DURATION,
+      duration: MERGE_SETTLE_DURATION,
+    };
+
+    // The merge should read as a local impact, not a visible bounce. Spread a
+    // stronger hit to the seam pair and a much softer falloff to nearby balls.
+    const impactProfile = [0.88, 0.58, 0.34];
+    for (let distance = 0; distance < impactProfile.length; distance += 1) {
+      const frontIndex = seamIndex - distance;
+      const rearIndex = seamIndex + 1 + distance;
+      const amount = impactProfile[distance];
+      this.addImpact(frontIndex, amount);
+      this.addImpact(rearIndex, amount);
+    }
   }
 
   addImpact(index, amount) {
