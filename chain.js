@@ -77,6 +77,10 @@ export function updateChain(game, dt) {
   resolveSplitClosure(game);
   syncChainPositions(game);
 
+  if (game.chain.length === 0) {
+    return;
+  }
+
   const tailS = game.chain[game.chain.length - 1].s;
   if (tailS > game.totalPathLength + EXIT_GAP) {
     game.setGameState("lose");
