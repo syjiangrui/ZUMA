@@ -3,7 +3,6 @@ import {
   CHAIN_ENTRY_SPEED, CHAIN_ENTRY_TAIL_S, CHAIN_ENTRY_START_HEAD_S,
   EXIT_GAP, INSERT_SETTLE_SPEED, GAP_CLOSE_SPEED, SPLIT_CLOSE_SPEED,
   IMPACT_FADE_SPEED, SPLIT_FRONT_PULL_RATIO, SPLIT_FRONT_PULL_MAX,
-  SPLIT_FRONT_PULL_MIN_RATIO, SPLIT_FRONT_PULL_CURVE,
   SPLIT_FRONT_PULL_SPEED, SPLIT_MERGE_EPSILON, MERGE_SETTLE_DURATION,
   MERGE_SETTLE_MIN_SPEED_SCALE,
 } from './config.js';
@@ -250,24 +249,11 @@ function getSplitLocalOffset(game, index) {
     return 0;
   }
 
-  const frontCount = game.splitState.index;
-  if (frontCount <= 0) {
-    return 0;
-  }
-
-  const seamDistance = game.splitState.index - 1 - index;
-  const normalized =
-    frontCount <= 1 ? 0 : seamDistance / (frontCount - 1);
-  // Near-rigid pullback: the entire front segment should retreat almost
-  // uniformly so the chain reads as a single solid body being drawn back.
-  // A tiny falloff (MIN_RATIO ≈ 0.96) keeps the math physically plausible
-  // without producing visible inter-ball spacing changes.
-  const falloff =
-    SPLIT_FRONT_PULL_MIN_RATIO +
-    (1 - SPLIT_FRONT_PULL_MIN_RATIO) *
-      Math.pow(Math.max(0, 1 - normalized), SPLIT_FRONT_PULL_CURVE);
-
-  return -game.splitState.frontPull * falloff;
+  // Rigid pullback: every ball in the front segment receives the same offset
+  // so the chain reads as a solid body retreating toward the break. This
+  // preserves the 1px ball-to-ball overlap at all times and avoids visible
+  // seam-lightening on the spiral track.
+  return -game.splitState.frontPull;
 }
 
 function resolveSplitClosure(game) {
