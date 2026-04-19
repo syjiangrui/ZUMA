@@ -1854,6 +1854,104 @@ function drawLevelButton(game, ctx, level) {
   ctx.textAlign = "start";
 }
 
+function drawAllClearScreen(game, ctx) {
+  ctx.fillStyle = "rgba(6, 10, 12, 0.6)";
+  ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+  const midX = GAME_WIDTH / 2;
+  const panelW = 340;
+  const panelH = 400;
+  const panelX = (GAME_WIDTH - panelW) / 2;
+  const panelY = GAME_HEIGHT * 0.08;
+
+  drawStonePanel(ctx, panelX, panelY, panelW, panelH, 28, {
+    top: "#747f88",
+    bottom: "#5f6a74",
+    stroke: "rgba(220, 185, 60, 0.9)",
+    innerStroke: "rgba(244, 220, 137, 0.3)",
+    shadow: "rgba(8, 10, 12, 0.25)",
+  });
+
+  ctx.textAlign = "center";
+
+  // Badge — sun
+  ctx.fillStyle = "rgba(220, 190, 80, 0.3)";
+  ctx.beginPath();
+  ctx.arc(midX, panelY + 40, 18, 0, TAU);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(220, 190, 80, 0.5)";
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.arc(midX, panelY + 40, 22, 0, TAU);
+  ctx.stroke();
+  for (let r = 0; r < 12; r++) {
+    const a = (r / 12) * TAU;
+    ctx.beginPath();
+    ctx.moveTo(midX + Math.cos(a) * 26, panelY + 40 + Math.sin(a) * 26);
+    ctx.lineTo(midX + Math.cos(a) * 34, panelY + 40 + Math.sin(a) * 34);
+    ctx.stroke();
+  }
+
+  // Title
+  ctx.font = "700 34px Georgia";
+  ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
+  ctx.fillText("祭坛大捷", midX + 1, panelY + 88);
+  ctx.fillStyle = "#f5d872";
+  ctx.fillText("祭坛大捷", midX, panelY + 86);
+
+  ctx.fillStyle = "rgba(244, 232, 202, 0.65)";
+  ctx.font = "14px Georgia";
+  ctx.fillText("全部关卡已通关", midX, panelY + 110);
+
+  // Per-level score summary
+  const LEVELS = game.constructor._LEVELS || [];
+  let totalScore = 0;
+  const startY = panelY + 138;
+  ctx.font = "600 12px Georgia";
+  for (let i = 0; i < LEVELS.length; i++) {
+    const lv = LEVELS[i];
+    const data = game.levelProgress.levels[lv.id];
+    const score = data?.highScore ?? 0;
+    totalScore += score;
+    const y = startY + i * 22;
+
+    ctx.fillStyle = "#c8bfa8";
+    ctx.textAlign = "left";
+    ctx.fillText(`${lv.id}. ${lv.name}`, panelX + 24, y);
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#f5d872";
+    ctx.fillText(`${score}`, panelX + panelW - 24, y);
+  }
+
+  // Total score
+  ctx.textAlign = "center";
+  const totalY = startY + LEVELS.length * 22 + 16;
+  ctx.strokeStyle = "rgba(200, 170, 50, 0.3)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(panelX + 30, totalY - 10);
+  ctx.lineTo(panelX + panelW - 30, totalY - 10);
+  ctx.stroke();
+
+  ctx.fillStyle = "#c8bfa8";
+  ctx.font = "600 14px Georgia";
+  ctx.fillText("总分", midX, totalY + 6);
+  ctx.fillStyle = "#f5d872";
+  ctx.font = "700 24px Georgia";
+  ctx.fillText(`${totalScore}`, midX, totalY + 34);
+
+  // Back to level select button
+  const backRect = game.getEndCardBackButtonRect();
+  const adjustedRect = { ...backRect, y: panelY + panelH - 50 };
+  drawRestartButton(
+    game, ctx, adjustedRect, "返回选关",
+    game.uiPressAction === "backToSelect" &&
+      game.isPointInsideRect(game.pointer.x, game.pointer.y, adjustedRect),
+  );
+
+  ctx.textAlign = "start";
+}
+
 export function render(game) {
   const ctx = game.ctx;
   ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
@@ -1894,4 +1992,9 @@ export function render(game) {
     game.drawRoundEndEffect(ctx);
   }
   drawRoundStateCard(game, ctx);
+
+  // All-clear overlay replaces the normal end card
+  if (game.isAllClear()) {
+    drawAllClearScreen(game, ctx);
+  }
 }

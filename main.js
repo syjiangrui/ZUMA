@@ -375,6 +375,10 @@ class ZumaGame {
     return this.gameState === "playing";
   }
 
+  isAllClear() {
+    return this.gameState === "win" && this.currentLevel >= LEVELS.length;
+  }
+
   // A round reset must clear every transient gameplay structure that can leak
   // across attempts: projectile, seam state, delayed match checks, palettes and
   // id allocation. This is the single restart path used by the constructor, the
