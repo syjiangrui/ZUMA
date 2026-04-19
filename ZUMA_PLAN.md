@@ -779,7 +779,7 @@ Phase 3 的核心不是继续加玩法规则，而是把当前已经成立的一
 
 - 这是长期并行任务，不要求在 Phase 3 某个固定时间点“彻底完成”
 
-## 17. 2026-04-18 Phase 3 / G Current Update
+## 17. 2026-04-19 Phase 3 Complete
 
 This addendum records the current visual-direction decisions without rewriting the older planning sections.
 
@@ -817,9 +817,24 @@ What has already changed in code (J — complete):
 - Default muted; HUD sound toggle button (speaker icon with red slash when muted).
 - HUD layout adjusted: next-preview (44×44) + sound button (36×38) + restart (64×38), non-overlapping.
 
-What is still not the focus yet:
-- Full HUD skin pass (`I`)
-- Performance tuning (`K`) — major rendering-cache pass already done. Further K work would focus on particle budgets and low-end device degradation.
+What has already changed in code (I — complete):
+- HUD panel cache rebuilt: stone speckle texture (light+dark ellipse layers), Mayan zigzag gold trim along bottom edge, sun/altar icon decoration, sub-panel micro speckle.
+- HUD text hierarchy: title 22px bold with manual offset shadow, subtitle 11px dimmer, status row with color dot indicator (green=playing, gold=win, red=lose), score numbers gold `#f5d872`, labels grey `#c8bfa8`.
+- Buttons enhanced: 1px press-down offset, border stroke brightened (0.42→0.52 alpha), sound icon slightly larger.
+- Next-ball preview: rotating dashed gold halo (`setLineDash` + time-based rotation), text replaced with arrow `▸`, brighter bronze border.
+- End card redesigned: panel 300×240 (was 266×164), altar badge with double ring + sun (win) or crack lines (lose), title 32px bold with offset shadow, score as large 28px gold number on own line, combo badge in inset sub-panel, restart button 200×40 with pulsing translucent glow, Mayan zigzag trim at bottom, win=gold border / lose=red-copper border.
+- Match feedback: score number with manual offset shadow, combo>2 triggers gold-flashing panel border.
+- All `ctx.shadowBlur` calls removed (caused GPU performance spikes). Replaced with manual offset text rendering (draw dark at +1px, then light at original position) and expanded translucent rects for glow effects.
+- All panel colors unified to scene-matching grey: `#7a8590` / `#636e78` (was grey-blue `#6e7880` / `#57626b`).
+- Phase 1 legacy DOM `.hud` element hidden (`display: none` in index.html) — was overlaying Canvas with near-black background.
+
+What has already changed (K — performance, effectively complete):
+- Major rendering-cache pass done in earlier work (static scene, ball base, frog layers, HUD panels).
+- All `shadowBlur` eliminated in I pass.
+- Particle hard cap at 120.
+- Further K work would only be needed if low-end device testing reveals new bottlenecks.
+
+Phase 3 status: **complete**. G/H/I/J/K all delivered. L (hand-feel micro-tuning) is a permanent background item.
 
 Next expected move:
-- Work package I (HUD / end-page / button skin upgrade), or proceed to Phase 4.
+- Phase 4 (multi-level, special ball types, difficulty curves, save/load).

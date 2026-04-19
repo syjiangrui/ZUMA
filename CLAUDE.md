@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Repository**: https://github.com/syjiangrui/ZUMA.git
 
-**Current Status**: Phase 3 (Visual Direction & Material Unification) in progress. Core gameplay rules are stable; ongoing work focuses on rendering quality and visual feedback.
+**Current Status**: Phase 3 complete. All six work packages (G–L) delivered. Core gameplay rules are stable; visual polish, audio, particles, HUD skin, and performance caching are done. Next step is Phase 4 (multi-level, special balls, difficulty curves, save/load).
 
 ## Development Commands
 
@@ -35,7 +35,7 @@ Since this is a single-page HTML game with no build system, development is strai
 
 ### High-Level System Design
 
-The entire game logic and rendering is contained in a single `main.js` file (~3,300 lines) within a `ZumaGame` class, plus a standalone `SfxEngine` class for procedural audio. While currently monolithic, the code is logically organized into 10 clear subsystems:
+The entire game logic and rendering is contained in a single `main.js` file (~3,550 lines) within a `ZumaGame` class, plus a standalone `SfxEngine` class for procedural audio. While currently monolithic, the code is logically organized into 10 clear subsystems:
 
 1. **Configuration & Constants** (top of file)
    - Fixed logical resolution: `430 x 932` (portrait mobile)
@@ -248,9 +248,8 @@ After experiments with full-sphere UV projection (which caused center stretching
 **Phase 2** (completed) established the full gameplay loop: single-round lifecycle, win/lose conditions, combo tracking, cross-seam matching, and split/merge mechanics. The system is rule-stable.
 
 **Phase 3** (in progress) is visual and audio polish:
-- **Completed**: Material unification (stone body, rolling band, temple glyphs), green-stone frog redesign, debris particle system, victory/defeat full-screen effects, procedural audio (Web Audio API synthesis), sound toggle button
-- **In Progress**: UI skin refinement
-- **Not Yet**: Multi-level, special ball types, difficulty curves, save/load
+- **Completed**: Material unification (stone body, rolling band, temple glyphs), green-stone frog redesign, debris particle system, victory/defeat full-screen effects, procedural audio (Web Audio API synthesis), sound toggle button, HUD/end-card/button skin upgrade (stone texture panels, Mayan zigzag trim, text hierarchy, button press feedback, rotating next-ball halo, expanded end card with altar badge and pulsing restart button), performance caching (all `shadowBlur` removed, replaced with manual offset shadows)
+- **Not Yet**: Multi-level, special ball types, difficulty curves, save/load (Phase 4)
 
 When working on Phase 3 tasks:
 - **Do not** change `chainHeadS` logic, offset speed tuning, or match detection rules (they are stable)
@@ -284,7 +283,7 @@ When/if modularization begins, prioritize in this order:
 .
 ├── index.html              # Single HTML entry point (minimal)
 ├── style.css               # Canvas sizing, page layout, color scheme
-├── main.js                 # Entire game (~3,300 lines; single ZumaGame class)
+├── main.js                 # Entire game (~3,550 lines; single ZumaGame class)
 ├── CLAUDE.md               # This file
 ├── TECHNICAL_ARCHITECTURE.md  # Implementation deep-dive (reference docs)
 └── ZUMA_PLAN.md            # Phase 1/2/3 planning and history
@@ -308,13 +307,13 @@ The rendering pipeline uses aggressive offscreen-canvas caching to avoid creatin
 - **`ballOverCache`**: Shared matte shade + worn bloom overlay (radius-dependent, palette-independent) pre-rendered once.
 - **`bandShadeCache`**: Top/bottom + side shading for rolling band texture, pre-rendered once.
 - **`frogCacheBehind` / `frogCacheFront`**: Stone frog split into two layers (body+lower jaw vs. upper jaw+eyes) so the held ball can be drawn between them at runtime.
-- **`hudPanelCache`**: Fixed HUD stone panel backgrounds rendered on first draw.
+- **`hudPanelCache`**: HUD stone panel backgrounds with speckle texture, Mayan zigzag trim, and sun icon — rendered once on first draw. Text (score, combo, status) drawn live each frame with gold/grey color hierarchy and manual offset text shadows (no `shadowBlur` for performance).
 
 When modifying rendering code, always check whether a gradient or path can be moved into one of these caches. Only rolling band textures (rotation-dependent) and dynamic text/scores need per-frame rendering.
 
 ## Performance Considerations
 
-- **Per-frame gradient creates**: ~8 (down from ~190 before caching). Only conditional panels (match feedback, round card), round-end effects, and non-standard-radius preview balls still create live gradients.
+- **Per-frame gradient creates**: ~8 (down from ~190 before caching). Only conditional panels (match feedback, round card), round-end effects, and non-standard-radius preview balls still create live gradients. Zero `ctx.shadowBlur` calls — all text shadows use manual offset rendering (draw dark text at +1px, then draw light text at original position).
 - **Ball chain updates**: O(n) per frame (n = ball count, ~30 typical)
 - **Collision detection**: O(n) linear scan; adequate for current scale
 - **Path lookup**: O(log n) binary search on `pathPoints[]`

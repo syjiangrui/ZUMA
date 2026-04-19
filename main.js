@@ -879,10 +879,10 @@ class ZumaGame {
     }
 
     return {
-      x: GAME_WIDTH * 0.5 - 84,
-      y: GAME_HEIGHT * 0.12 + 114,
-      w: 168,
-      h: 34,
+      x: GAME_WIDTH * 0.5 - 100,
+      y: GAME_HEIGHT * 0.1 + 192,
+      w: 200,
+      h: 40,
     };
   }
 
@@ -2004,12 +2004,8 @@ class ZumaGame {
     }
 
     const glow = ctx.createRadialGradient(
-      this.shooter.x + 22,
-      118,
-      14,
-      this.shooter.x + 22,
-      118,
-      268,
+      this.shooter.x + 22, 118, 14,
+      this.shooter.x + 22, 118, 268,
     );
     glow.addColorStop(0, "rgba(233, 192, 98, 0.18)");
     glow.addColorStop(1, "rgba(233, 192, 98, 0)");
@@ -2462,47 +2458,164 @@ class ZumaGame {
       this.hudPanelCache.width = GAME_WIDTH;
       this.hudPanelCache.height = 120;
       const hCtx = this.hudPanelCache.getContext("2d");
+
+      // Main HUD panel — matches scene stone slab
       this.drawStonePanel(hCtx, 16, 14, 232, 92, 22, {
-        top: "#6e7880",
-        bottom: "#57626b",
-        stroke: "rgba(92, 69, 39, 0.92)",
-        innerStroke: "rgba(244, 225, 173, 0.18)",
-        shadow: "rgba(12, 15, 18, 0.18)",
+        top: "#7a8590",
+        bottom: "#636e78",
+        stroke: "rgba(180, 150, 80, 0.55)",
+        innerStroke: "rgba(240, 225, 180, 0.12)",
+        shadow: "rgba(8, 12, 16, 0.15)",
       });
+
+      // Stone speckle texture on main panel
+      hCtx.save();
+      hCtx.beginPath();
+      this.fillRoundedRect(hCtx, 18, 16, 228, 88, 20);
+      hCtx.clip();
+      hCtx.fillStyle = "rgba(255, 255, 255, 0.04)";
+      for (let i = 0; i < 18; i += 1) {
+        hCtx.beginPath();
+        hCtx.ellipse(
+          24 + (i * 37) % 220, 20 + (i * 19) % 80,
+          4 + (i % 3) * 3, 2 + (i % 2) * 2,
+          0.4 * (i % 5), 0, TAU,
+        );
+        hCtx.fill();
+      }
+      hCtx.fillStyle = "rgba(0, 0, 0, 0.03)";
+      for (let i = 0; i < 10; i += 1) {
+        hCtx.beginPath();
+        hCtx.ellipse(
+          30 + (i * 43) % 210, 24 + (i * 23) % 74,
+          3 + (i % 2) * 2, 2 + (i % 3),
+          0.6 * (i % 4), 0, TAU,
+        );
+        hCtx.fill();
+      }
+      hCtx.restore();
+
+      // Mayan zigzag trim along bottom edge of main panel
+      hCtx.save();
+      hCtx.beginPath();
+      this.fillRoundedRect(hCtx, 18, 16, 228, 88, 20);
+      hCtx.clip();
+      const zigY = 100;
+      const zigH = 6;
+      const zigW = 10;
+      hCtx.fillStyle = "rgba(200, 170, 50, 0.22)";
+      hCtx.beginPath();
+      hCtx.moveTo(22, zigY);
+      for (let zx = 22; zx < 242; zx += zigW) {
+        hCtx.lineTo(zx + zigW * 0.5, zigY - zigH);
+        hCtx.lineTo(zx + zigW, zigY);
+      }
+      hCtx.lineTo(242, zigY + 2);
+      hCtx.lineTo(22, zigY + 2);
+      hCtx.closePath();
+      hCtx.fill();
+      // Thin gold line above zigzag
+      hCtx.strokeStyle = "rgba(220, 190, 80, 0.28)";
+      hCtx.lineWidth = 1;
+      hCtx.beginPath();
+      hCtx.moveTo(26, zigY + 1);
+      hCtx.lineTo(240, zigY + 1);
+      hCtx.stroke();
+      hCtx.restore();
+
+      // Sun/altar icon at top-left as title decoration (cached)
+      hCtx.save();
+      const sunX = 222, sunY = 36;
+      hCtx.strokeStyle = "rgba(220, 190, 80, 0.32)";
+      hCtx.lineWidth = 1.5;
+      hCtx.beginPath();
+      hCtx.arc(sunX, sunY, 8, 0, TAU);
+      hCtx.stroke();
+      // Sun rays
+      for (let r = 0; r < 8; r += 1) {
+        const a = (r / 8) * TAU;
+        hCtx.beginPath();
+        hCtx.moveTo(sunX + Math.cos(a) * 10, sunY + Math.sin(a) * 10);
+        hCtx.lineTo(sunX + Math.cos(a) * 14, sunY + Math.sin(a) * 14);
+        hCtx.stroke();
+      }
+      hCtx.fillStyle = "rgba(220, 190, 80, 0.2)";
+      hCtx.beginPath();
+      hCtx.arc(sunX, sunY, 5, 0, TAU);
+      hCtx.fill();
+      hCtx.restore();
+
+      // Sub-panels — slightly recessed from main panel
       this.drawStonePanel(hCtx, 28, 66, 86, 28, 12, {
-        top: "#7a858d",
-        bottom: "#616d75",
-        stroke: "rgba(86, 64, 37, 0.76)",
-        innerStroke: "rgba(246, 229, 183, 0.12)",
-        shadow: "rgba(0, 0, 0, 0.1)",
+        top: "#6e7a84",
+        bottom: "#5a6570",
+        stroke: "rgba(160, 130, 70, 0.5)",
+        innerStroke: "rgba(240, 225, 180, 0.08)",
+        shadow: "rgba(0, 0, 0, 0.08)",
       });
       this.drawStonePanel(hCtx, 120, 66, 118, 28, 12, {
-        top: "#7a858d",
-        bottom: "#616d75",
-        stroke: "rgba(86, 64, 37, 0.76)",
-        innerStroke: "rgba(246, 229, 183, 0.12)",
-        shadow: "rgba(0, 0, 0, 0.1)",
+        top: "#6e7a84",
+        bottom: "#5a6570",
+        stroke: "rgba(160, 130, 70, 0.5)",
+        innerStroke: "rgba(240, 225, 180, 0.08)",
+        shadow: "rgba(0, 0, 0, 0.08)",
       });
+
+      // Micro speckle on sub-panels
+      hCtx.fillStyle = "rgba(255, 255, 255, 0.035)";
+      for (let i = 0; i < 6; i += 1) {
+        hCtx.beginPath();
+        hCtx.ellipse(34 + i * 12, 76 + (i % 2) * 6, 2, 1.5, 0, 0, TAU);
+        hCtx.fill();
+      }
+      for (let i = 0; i < 8; i += 1) {
+        hCtx.beginPath();
+        hCtx.ellipse(126 + i * 13, 74 + (i % 3) * 5, 2, 1.5, 0, 0, TAU);
+        hCtx.fill();
+      }
     }
     ctx.drawImage(this.hudPanelCache, 0, 0);
 
+    // Title with manual offset shadow (no shadowBlur — perf)
+    ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+    ctx.font = "700 22px Georgia";
+    ctx.fillText("祭坛试炼", 29, 41);
     ctx.fillStyle = "#f0d57a";
-    ctx.font = "600 18px Georgia";
-    ctx.fillText("祭坛试炼", 30, 38);
+    ctx.fillText("祭坛试炼", 28, 40);
 
-    ctx.fillStyle = "rgba(242, 229, 198, 0.78)";
-    ctx.font = "13px Georgia";
+    // Subtitle — dimmer
+    ctx.fillStyle = "rgba(220, 210, 180, 0.5)";
+    ctx.font = "11px Georgia";
     ctx.fillText("石质祭坛 · 青铜机关", 30, 56);
 
-    ctx.fillStyle = "#e8d7ae";
-    ctx.font = "600 13px Georgia";
-    ctx.fillText(`状态 ${this.getGameStateLabel()}`, 40, 85);
-    ctx.fillText(`链长 ${this.chain.length}`, 132, 85);
+    // Status row with color dot indicator
+    const stateLabel = this.getGameStateLabel();
+    const stateDot = this.gameState === "win" ? "#f0d57a" :
+      this.gameState === "lose" ? "#d45040" : "#6cc870";
+    ctx.fillStyle = stateDot;
+    ctx.beginPath();
+    ctx.arc(37, 82, 3, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = "#c8bfa8";
+    ctx.font = "600 12px Georgia";
+    ctx.fillText(`${stateLabel}`, 44, 85);
+    ctx.fillText("链长", 130, 85);
+    ctx.fillStyle = "#f5d872";
+    ctx.font = "700 13px Georgia";
+    ctx.fillText(`${this.chain.length}`, 155, 85);
 
-    ctx.fillStyle = "#f1e5c1";
-    ctx.font = "600 13px Georgia";
-    ctx.fillText(`分数 ${this.score}`, 30, 103);
-    ctx.fillText(this.getComboHudText(), 128, 103);
+    // Score row — label gray, number gold
+    ctx.fillStyle = "#c8bfa8";
+    ctx.font = "600 12px Georgia";
+    ctx.fillText("分数", 30, 103);
+    ctx.fillStyle = "#f5d872";
+    ctx.font = "700 14px Georgia";
+    ctx.fillText(`${this.score}`, 58, 103);
+    ctx.fillStyle = "#c8bfa8";
+    ctx.font = "600 12px Georgia";
+    const comboText = this.getComboHudText();
+    ctx.fillText(comboText, 128, 103);
+
     this.drawHudNextPreview(ctx);
     this.drawSoundButton(ctx);
     this.drawRestartButton(
@@ -2547,55 +2660,150 @@ class ZumaGame {
       return;
     }
 
+    const isWin = this.gameState === "win";
     ctx.save();
-    ctx.fillStyle = "rgba(6, 10, 12, 0.46)";
+    // Dim overlay
+    ctx.fillStyle = "rgba(6, 10, 12, 0.52)";
     ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    const panelWidth = 266;
-    const panelHeight = 164;
+    const panelWidth = 300;
+    const panelHeight = 240;
     const panelX = (GAME_WIDTH - panelWidth) / 2;
-    const panelY = GAME_HEIGHT * 0.115;
+    const panelY = GAME_HEIGHT * 0.1;
+    const midX = GAME_WIDTH / 2;
 
+    // Main panel with win-gold or lose-red border
     this.drawStonePanel(ctx, panelX, panelY, panelWidth, panelHeight, 26, {
-      top: "#707b83",
-      bottom: "#59646d",
-      stroke:
-        this.gameState === "win"
-          ? "rgba(124, 92, 47, 0.96)"
-          : "rgba(114, 73, 58, 0.96)",
-      innerStroke:
-        this.gameState === "win"
-          ? "rgba(244, 220, 137, 0.26)"
-          : "rgba(231, 167, 143, 0.22)",
-      shadow: "rgba(8, 10, 12, 0.22)",
+      top: "#747f88",
+      bottom: "#5f6a74",
+      stroke: isWin
+        ? "rgba(220, 185, 60, 0.9)"
+        : "rgba(160, 70, 50, 0.85)",
+      innerStroke: isWin
+        ? "rgba(244, 220, 137, 0.3)"
+        : "rgba(231, 167, 143, 0.25)",
+      shadow: "rgba(8, 10, 12, 0.25)",
     });
 
-    ctx.strokeStyle = "rgba(242, 224, 177, 0.18)";
-    ctx.lineWidth = 3;
+    // Stone speckle texture on card panel
+    ctx.save();
     ctx.beginPath();
-    ctx.arc(GAME_WIDTH / 2, panelY + 34, 16, 0, TAU);
+    this.fillRoundedRect(ctx, panelX + 2, panelY + 2, panelWidth - 4, panelHeight - 4, 24);
+    ctx.clip();
+    ctx.fillStyle = "rgba(255, 255, 255, 0.03)";
+    for (let i = 0; i < 14; i += 1) {
+      ctx.beginPath();
+      ctx.ellipse(
+        panelX + 20 + (i * 41) % (panelWidth - 40),
+        panelY + 16 + (i * 29) % (panelHeight - 32),
+        4 + (i % 3) * 3, 2 + (i % 2) * 2,
+        0.3 * (i % 5), 0, TAU,
+      );
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // Altar badge — double ring + sun (win) or crack lines (lose)
+    const badgeY = panelY + 32;
+    ctx.strokeStyle = isWin
+      ? "rgba(220, 190, 80, 0.45)"
+      : "rgba(180, 80, 60, 0.4)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(midX, badgeY, 18, 0, TAU);
+    ctx.stroke();
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(midX, badgeY, 13, 0, TAU);
     ctx.stroke();
 
-    ctx.fillStyle = "#f0ddb0";
-    ctx.textAlign = "center";
-    ctx.font = "600 28px Georgia";
-    ctx.fillText(this.gameState === "win" ? "祭坛告捷" : "试炼中断", GAME_WIDTH / 2, panelY + 58);
+    if (isWin) {
+      // Sun icon inside badge
+      ctx.fillStyle = "rgba(220, 190, 80, 0.3)";
+      ctx.beginPath();
+      ctx.arc(midX, badgeY, 7, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(220, 190, 80, 0.4)";
+      ctx.lineWidth = 1.2;
+      for (let r = 0; r < 8; r += 1) {
+        const a = (r / 8) * TAU;
+        ctx.beginPath();
+        ctx.moveTo(midX + Math.cos(a) * 9, badgeY + Math.sin(a) * 9);
+        ctx.lineTo(midX + Math.cos(a) * 14, badgeY + Math.sin(a) * 14);
+        ctx.stroke();
+      }
+    } else {
+      // Crack lines for defeat
+      ctx.strokeStyle = "rgba(180, 80, 60, 0.35)";
+      ctx.lineWidth = 1.5;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(midX - 6, badgeY - 6);
+      ctx.lineTo(midX, badgeY);
+      ctx.lineTo(midX + 3, badgeY - 8);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(midX + 2, badgeY + 2);
+      ctx.lineTo(midX + 7, badgeY + 7);
+      ctx.stroke();
+      ctx.lineCap = "butt";
+    }
 
-    ctx.fillStyle = "rgba(244, 232, 202, 0.8)";
-    ctx.font = "15px Georgia";
+    // Title with manual offset shadow (no shadowBlur — perf)
+    ctx.textAlign = "center";
+    const titleText = isWin ? "祭坛告捷" : "试炼中断";
+    ctx.font = "700 32px Georgia";
+    ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
+    ctx.fillText(titleText, midX + 1, panelY + 74);
+    ctx.fillStyle = isWin ? "#f5d872" : "#e0b8a0";
+    ctx.fillText(titleText, midX, panelY + 72);
+
+    // Subtitle description
+    ctx.fillStyle = "rgba(244, 232, 202, 0.65)";
+    ctx.font = "13px Georgia";
     ctx.fillText(
-      this.gameState === "win"
-        ? `球链已被清空 · 本局得分 ${this.score}`
-        : `球链抵达终点 · 本局得分 ${this.score}`,
-      GAME_WIDTH / 2,
-      panelY + 96,
+      isWin ? "球链已被清空" : "球链抵达终点",
+      midX, panelY + 94,
     );
+
+    // Score — large gold number with manual offset shadow
+    ctx.fillStyle = "#c8bfa8";
+    ctx.font = "600 14px Georgia";
+    ctx.fillText("本局得分", midX, panelY + 120);
+    ctx.font = "700 28px Georgia";
+    ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+    ctx.fillText(`${this.score}`, midX + 1, panelY + 153);
+    ctx.fillStyle = "#f5d872";
+    ctx.fillText(`${this.score}`, midX, panelY + 152);
+
+    // Combo badge — inset stone sub-panel
+    const comboBadgeW = 140;
+    const comboBadgeH = 24;
+    const comboBadgeX = midX - comboBadgeW / 2;
+    const comboBadgeY = panelY + 164;
+    this.drawStonePanel(ctx, comboBadgeX, comboBadgeY, comboBadgeW, comboBadgeH, 10, {
+      top: "#666f78",
+      bottom: "#545e68",
+      stroke: "rgba(80, 60, 35, 0.6)",
+      innerStroke: "rgba(246, 229, 183, 0.1)",
+      shadow: "rgba(0, 0, 0, 0.08)",
+    });
+    ctx.fillStyle = "rgba(240, 225, 185, 0.75)";
+    ctx.font = "600 11px Georgia";
     ctx.fillText(
       this.bestCombo > 1 ? `最高连击 x${this.bestCombo}` : "本局未触发连击",
-      GAME_WIDTH / 2,
-      panelY + 118,
+      midX, comboBadgeY + 16,
     );
+
+    // Restart button — larger, with pulse glow (no shadowBlur — perf)
     const restartRect = this.getEndCardRestartButtonRect();
+    // Pulsing border glow via expanded translucent rect behind button
+    const pulse = 0.08 + 0.06 * Math.sin(this.roundEndTimer * 2.5);
+    ctx.fillStyle = isWin
+      ? `rgba(244, 217, 100, ${pulse})`
+      : `rgba(200, 100, 70, ${pulse * 0.7})`;
+    this.fillRoundedRect(ctx, restartRect.x - 4, restartRect.y - 4, restartRect.w + 8, restartRect.h + 8, 22);
+
     this.drawRestartButton(
       ctx,
       restartRect,
@@ -2603,6 +2811,30 @@ class ZumaGame {
       this.uiPressAction === "restart" &&
         this.isPointInsideRect(this.pointer.x, this.pointer.y, restartRect),
     );
+
+    // Mayan zigzag trim at panel bottom
+    ctx.save();
+    ctx.beginPath();
+    this.fillRoundedRect(ctx, panelX + 2, panelY + 2, panelWidth - 4, panelHeight - 4, 24);
+    ctx.clip();
+    const zigY2 = panelY + panelHeight - 8;
+    const zigH2 = 5;
+    const zigW2 = 12;
+    ctx.fillStyle = isWin
+      ? "rgba(200, 170, 50, 0.18)"
+      : "rgba(160, 70, 50, 0.15)";
+    ctx.beginPath();
+    ctx.moveTo(panelX + 10, zigY2);
+    for (let zx = panelX + 10; zx < panelX + panelWidth - 10; zx += zigW2) {
+      ctx.lineTo(zx + zigW2 * 0.5, zigY2 - zigH2);
+      ctx.lineTo(zx + zigW2, zigY2);
+    }
+    ctx.lineTo(panelX + panelWidth - 10, zigY2 + 2);
+    ctx.lineTo(panelX + 10, zigY2 + 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
     ctx.textAlign = "start";
     ctx.restore();
   }
@@ -2620,21 +2852,30 @@ class ZumaGame {
         ? 1
         : Math.max(0, this.matchFeedback.timer / fadeWindow);
     const rise = (1 - Math.min(1, this.matchFeedback.timer / 1.2)) * 18;
+    const combo = this.matchFeedback.combo || 0;
 
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.textAlign = "center";
 
+    // Combo > 2: panel border flashes gold
+    const panelStroke = combo > 2
+      ? `rgba(220, 185, 60, ${0.6 + 0.3 * Math.sin(this.lastTime / 120)})`
+      : "rgba(94, 70, 40, 0.9)";
+
     this.drawStonePanel(ctx, GAME_WIDTH * 0.5 - 96, 114 - rise, 192, 60, 18, {
-      top: "#6f797f",
-      bottom: "#5c666e",
-      stroke: "rgba(94, 70, 40, 0.9)",
+      top: "#727c86",
+      bottom: "#5c6670",
+      stroke: panelStroke,
       innerStroke: "rgba(246, 225, 171, 0.2)",
       shadow: "rgba(0, 0, 0, 0.15)",
     });
 
+    // Score number with manual offset shadow (no shadowBlur — perf)
+    ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
+    ctx.font = "700 22px Georgia";
+    ctx.fillText(`+${this.matchFeedback.scoreDelta}`, GAME_WIDTH * 0.5 + 1, 144 - rise);
     ctx.fillStyle = "#f1d680";
-    ctx.font = "600 22px Georgia";
     ctx.fillText(`+${this.matchFeedback.scoreDelta}`, GAME_WIDTH * 0.5, 143 - rise);
 
     ctx.fillStyle = "rgba(244, 229, 189, 0.88)";
@@ -2649,8 +2890,8 @@ class ZumaGame {
 
   drawStonePanel(ctx, x, y, width, height, radius, options = {}) {
     const {
-      top = "#728087",
-      bottom = "#59646c",
+      top = "#7a8590",
+      bottom = "#636e78",
       stroke = "rgba(94, 72, 43, 0.88)",
       innerStroke = "rgba(247, 227, 181, 0.16)",
       shadow = "rgba(0, 0, 0, 0.16)",
@@ -2686,30 +2927,43 @@ class ZumaGame {
 
   drawHudNextPreview(ctx) {
     const rect = this.getHudNextPreviewRect();
+    const centerX = rect.x + rect.w / 2;
+    const centerY = rect.y + 20;
 
     ctx.save();
+    // Brighter bronze border to stand out
     this.drawStonePanel(ctx, rect.x, rect.y, rect.w, rect.h, 14, {
-      top: "#737f87",
-      bottom: "#5f6971",
-      stroke: "rgba(90, 67, 39, 0.9)",
-      innerStroke: "rgba(247, 228, 187, 0.16)",
+      top: "#727e88",
+      bottom: "#5e6a74",
+      stroke: "rgba(200, 170, 50, 0.6)",
+      innerStroke: "rgba(247, 228, 187, 0.2)",
       shadow: "rgba(0, 0, 0, 0.16)",
     });
 
-    ctx.strokeStyle = "rgba(228, 193, 108, 0.22)";
+    // Rotating dashed gold halo around ball — "ready" indicator
+    const ringAngle = (this.lastTime / 1800) % TAU;
+    ctx.save();
+    ctx.translate(centerX, centerY);
+    ctx.rotate(ringAngle);
+    ctx.strokeStyle = "rgba(228, 193, 108, 0.35)";
     ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 4]);
     ctx.beginPath();
-    ctx.arc(rect.x + rect.w / 2, rect.y + 20, 14, 0, TAU);
+    ctx.arc(0, 0, 15, 0, TAU);
     ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
 
-    ctx.fillStyle = "rgba(244, 229, 189, 0.78)";
-    ctx.font = "9px Georgia";
+    // Small arrow label instead of text
+    ctx.fillStyle = "rgba(244, 229, 189, 0.65)";
+    ctx.font = "11px Georgia";
     ctx.textAlign = "center";
-    ctx.fillText("下一个", rect.x + rect.w / 2, rect.y + rect.h - 5);
+    ctx.fillText("▸", centerX, rect.y + rect.h - 5);
+
     this.drawBall(
       ctx,
-      rect.x + rect.w / 2,
-      rect.y + 20,
+      centerX,
+      centerY,
       BALL_RADIUS - 2,
       this.nextPaletteIndex,
       -this.shooter.angle * 1.5,
@@ -2727,39 +2981,40 @@ class ZumaGame {
       this.isPointInsideRect(this.pointer.x, this.pointer.y, rect);
 
     ctx.save();
+
     this.drawStonePanel(ctx, rect.x, rect.y, rect.w, rect.h, 14, {
       top: isPressed ? "#876748" : "#94724d",
       bottom: isPressed ? "#64472e" : "#705139",
-      stroke: "rgba(242, 217, 151, 0.42)",
-      innerStroke: "rgba(255, 240, 210, 0.12)",
-      shadow: "rgba(0, 0, 0, 0.18)",
+      stroke: "rgba(242, 217, 151, 0.52)",
+      innerStroke: "rgba(255, 240, 210, 0.15)",
+      shadow: "rgba(0, 0, 0, 0.2)",
     });
 
-    // Speaker icon (centered in button)
+    // Speaker icon (centered in button, press offset)
     const cx = rect.x + rect.w / 2;
     const cy = rect.y + rect.h / 2;
-    ctx.translate(cx, cy);
+    ctx.translate(cx, cy + (isPressed ? 1 : 0));
 
-    // Speaker body
+    // Speaker body — slightly larger
     ctx.fillStyle = "#f4e7c3";
     ctx.beginPath();
-    ctx.moveTo(-6, -4);
-    ctx.lineTo(-2, -4);
-    ctx.lineTo(4, -8);
-    ctx.lineTo(4, 8);
-    ctx.lineTo(-2, 4);
-    ctx.lineTo(-6, 4);
+    ctx.moveTo(-7, -5);
+    ctx.lineTo(-2, -5);
+    ctx.lineTo(5, -9);
+    ctx.lineTo(5, 9);
+    ctx.lineTo(-2, 5);
+    ctx.lineTo(-7, 5);
     ctx.closePath();
     ctx.fill();
 
     if (this.sfx.muted) {
       // Mute slash
       ctx.strokeStyle = "#e85050";
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 2.2;
       ctx.lineCap = "round";
       ctx.beginPath();
-      ctx.moveTo(-8, -9);
-      ctx.lineTo(8, 9);
+      ctx.moveTo(-9, -10);
+      ctx.lineTo(9, 10);
       ctx.stroke();
     } else {
       // Sound waves
@@ -2767,10 +3022,10 @@ class ZumaGame {
       ctx.lineWidth = 1.5;
       ctx.lineCap = "round";
       ctx.beginPath();
-      ctx.arc(5, 0, 4, -0.6, 0.6);
+      ctx.arc(6, 0, 5, -0.6, 0.6);
       ctx.stroke();
       ctx.beginPath();
-      ctx.arc(5, 0, 8, -0.5, 0.5);
+      ctx.arc(6, 0, 9, -0.5, 0.5);
       ctx.stroke();
     }
 
@@ -2780,22 +3035,24 @@ class ZumaGame {
   drawRestartButton(ctx, rect, label, isPressed = false) {
     ctx.save();
 
-    this.drawStonePanel(ctx, rect.x, rect.y, rect.w, rect.h, 18, {
+    this.drawStonePanel(ctx, rect.x, rect.y + (isPressed ? 1 : 0), rect.w, rect.h, 18, {
       top: isPressed ? "#876748" : "#94724d",
       bottom: isPressed ? "#64472e" : "#705139",
-      stroke: "rgba(242, 217, 151, 0.42)",
-      innerStroke: "rgba(255, 240, 210, 0.12)",
-      shadow: "rgba(0, 0, 0, 0.18)",
+      stroke: "rgba(242, 217, 151, 0.52)",
+      innerStroke: "rgba(255, 240, 210, 0.15)",
+      shadow: "rgba(0, 0, 0, 0.2)",
     });
 
-    ctx.fillStyle = isPressed ? "rgba(54, 35, 20, 0.18)" : "rgba(255, 241, 210, 0.08)";
-    this.fillRoundedRect(ctx, rect.x + 5, rect.y + 5, rect.w - 10, Math.max(8, rect.h * 0.36), 13);
+    const yOff = isPressed ? 1 : 0;
+    // Top highlight strip
+    ctx.fillStyle = isPressed ? "rgba(54, 35, 20, 0.18)" : "rgba(255, 241, 210, 0.1)";
+    this.fillRoundedRect(ctx, rect.x + 5, rect.y + 5 + yOff, rect.w - 10, Math.max(8, rect.h * 0.36), 13);
 
     ctx.fillStyle = "#f4e7c3";
     ctx.font = "600 15px Georgia";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2 + 1);
+    ctx.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2 + 1 + yOff);
     ctx.textAlign = "start";
     ctx.textBaseline = "alphabetic";
     ctx.restore();

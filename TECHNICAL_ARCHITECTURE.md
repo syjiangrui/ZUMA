@@ -813,9 +813,9 @@ rotation = s / radius
 | `bandShadeCache` | 腰带边缘阴影 | `createBallRenderCache()` |
 | `frogCacheBehind` | 蛙身 + 下颚 + 口腔 + 腹部凹槽 | `createFrogCache()` |
 | `frogCacheFront` | 上颚 + 鼻孔 + 青铜描边 + 眼睛 | `createFrogCache()` |
-| `hudPanelCache` | HUD 固定面板底图 | `drawOverlay()` 首次调用时 |
+| `hudPanelCache` | HUD 面板底图：石面板 + 石纹斑点 + 玛雅锯齿金边 + 太阳图标 + 子面板微纹理 | `drawOverlay()` 首次调用时 |
 
-优化结果：gradient 创建从 ~190/帧 降到 ~8/帧，lineTo 从 1848/帧降到 0。
+优化结果：gradient 创建从 ~190/帧 降到 ~8/帧，lineTo 从 1848/帧降到 0。`ctx.shadowBlur` 调用降到 0（Canvas 2D shadowBlur 触发 GPU 高斯模糊，开销极高；全部改为手工偏移渲染——先画深色偏移 +1px 文字，再画正色原位文字）。
 
 新增渲染代码时，应优先检查 gradient 或路径是否可以纳入上述缓存体系，避免回退到每帧重建。
 
