@@ -4,12 +4,12 @@
 
 这份文档描述当前祖马原型的真实实现结构，而不是理想化设计稿。目标是解决两个问题：
 
-1. 当 `main.js` 已经接近 2800 行时，后续开发者需要快速理解”系统是怎么跑起来的”。
+1. 代码已拆分为 8 个 ES 模块后，后续开发者需要快速理解”系统是怎么跑起来的”。
 2. 后续做 Phase 2/3/4 的功能时，需要知道哪些是稳定规则层，哪些只是表现层和手感层。
 
 当前实现特点：
 
-- 使用单文件 `main.js` 承载全部游戏逻辑与渲染逻辑
+- 使用 ES 模块拆分为 8 个文件（`config.js`, `sfx.js`, `path.js`, `chain.js`, `match.js`, `projectile.js`, `render.js`, `main.js`），`main.js` 中的 `ZumaGame` 类作为编排器
 - 使用 `Canvas 2D` 绘制轨道、球体、HUD 和场景
 - 使用固定逻辑分辨率 `430 x 932`
 - 支持桌面和手机触控输入
@@ -17,12 +17,19 @@
 
 这份文档对应当前项目中的以下文件：
 
-- [main.js](main.js)
+- [main.js](main.js) — ZumaGame 编排器（~703 行）
+- [config.js](config.js) — 常量与调色板
+- [sfx.js](sfx.js) — 音频合成
+- [path.js](path.js) — 路径几何
+- [chain.js](chain.js) — 球链 + 断链/并链
+- [match.js](match.js) — 匹配检测与计分
+- [projectile.js](projectile.js) — 弹射体系统
+- [render.js](render.js) — 渲染与纹理生成
 - [ZUMA_PLAN.md](ZUMA_PLAN.md)
 
 ## 2. 当前代码组织方式
 
-虽然代码目前仍在一个文件中，但逻辑上已经自然分成了 8 个子系统：
+虽然代码已拆分为 8 个 ES 模块，但逻辑上仍然对应 8 个子系统：
 
 1. 基础配置与常量
 2. 运行时状态与回合生命周期
@@ -677,19 +684,20 @@ rotation = s / radius
 
 ## 16. 当前技术债
 
-### 16.1 单文件过大
+### 16.1 ~~单文件过大~~ ✅ 已解决
 
-虽然逻辑已经分层，但物理上仍在一个文件中。
-
-建议后续拆分为：
+代码已拆分为 8 个 ES 模块：
 
 - `config.js`：常量和颜色表
+- `sfx.js`：音频合成
 - `path.js`：路径采样和几何查询
-- `round-state.js`：回合状态与 reset
-- `chain-system.js`：链条推进、插入、断链、并链
-- `score-system.js`：action context、计分、连击
-- `render.js`：所有绘制函数
-- `input.js`：pointer / keyboard / HUD hit test
+- `chain.js`：链条推进、插入、断链、并链
+- `match.js`：action context、计分、连击、匹配检测
+- `projectile.js`：弹射体飞行、碰撞、插入
+- `render.js`：所有绘制函数和纹理生成
+- `main.js`：ZumaGame 编排器、输入、粒子、游戏循环
+
+模块间通过 `game.*` 委托包装方法路由，无循环依赖。
 
 ### 16.2 轨道球和表现层仍有耦合
 
@@ -710,65 +718,24 @@ rotation = s / radius
 
 ## 17. 推荐后续维护策略
 
-在当前阶段，最合理的维护方式不是立刻大拆文件，而是：
+模块化拆分已完成。后续维护建议：
 
-1. 保持现有逻辑不乱动
-2. 所有新增功能先写进 `PLAN`
-3. 只在某个子系统明显稳定后再抽模块
-4. 先补技术文档和注释，再做结构迁移
+1. 新功能按模块归属添加（如特殊球规则加到 `match.js`/`chain.js`，新渲染效果加到 `render.js`）
+2. 跨模块调用统一走 `game.*` 委托包装，保持无循环依赖
+3. 开发时需通过 HTTP 服务（`python3 -m http.server 8000`），不能直接打开 `file://`
+4. 如果某个模块（如 `render.js` 的 1729 行）继续膨胀，可以进一步拆分为子模块
 
-换句话说，当前更适合“文档化单体”，而不是“仓促重构”。
+## 18. ~~建议的下一步重构切口~~ ✅ 已完成
 
-## 18. 建议的下一步重构切口
+模块化拆分已按以下顺序完成：
 
-如果后面决定开始拆文件，推荐从以下切口开始：
-
-### 切口 1：路径与几何
-
-优先拆：
-
-- `createPath`
-- `getPointAtDistance`
-- `getClosestPathDistance`
-- `catmullRom`
-
-原因：
-
-- 纯函数多
-- 对玩法规则依赖较少
-- 拆出风险最低
-
-### 切口 2：计分与事件流
-
-优先拆：
-
-- `createActionContext`
-- `getActionContext`
-- `trimActionContexts`
-- `recordMatchEvent`
-- HUD 的 combo/score 状态
-
-原因：
-
-- 已经有比较清晰的职责边界
-- 和渲染关系相对弱
-
-### 切口 3：断链系统
-
-最后再拆：
-
-- `splitState`
-- `getSplitGap`
-- `getSplitFrontPullTarget`
-- `updateSplitFrontPull`
-- `resolveSplitClosure`
-- `absorbSplitState`
-- `triggerMergeSettle`
-
-原因：
-
-- 这是当前最脆弱、最依赖上下文的部分
-- 现在先保持在一起更安全
+1. ✅ 路径与几何 → `path.js`
+2. ✅ 计分与事件流 → `match.js`
+3. ✅ 断链系统 → `chain.js`
+4. ✅ 弹射体 → `projectile.js`
+5. ✅ 渲染 → `render.js`
+6. ✅ 音频 → `sfx.js`
+7. ✅ 常量 → `config.js`
 
 ## 19. 总结
 

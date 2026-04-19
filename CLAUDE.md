@@ -8,15 +8,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Repository**: https://github.com/syjiangrui/ZUMA.git
 
-**Current Status**: Phase 3 complete. All six work packages (G–L) delivered. Core gameplay rules are stable; visual polish, audio, particles, HUD skin, and performance caching are done. Next step is Phase 4 (multi-level, special balls, difficulty curves, save/load).
+**Current Status**: Phase 3 complete. ES module refactoring complete (8 modules). Core gameplay rules are stable; visual polish, audio, particles, HUD skin, and performance caching are done. Next step is Phase 4 (multi-level, special balls, difficulty curves, save/load).
 
 ## Development Commands
 
 Since this is a single-page HTML game with no build system, development is straightforward:
 
 ### Run the game
-- Open `index.html` directly in a web browser
-- No build, transpilation, or server required
+- Serve via HTTP: `python3 -m http.server 8000` then open `http://localhost:8000`
+- ES modules require HTTP — `file://` URLs will not work (CORS restriction)
+- No build, transpilation, or bundling required
 - All development can happen by editing files and refreshing the browser
 
 ### Testing gameplay
@@ -35,7 +36,7 @@ Since this is a single-page HTML game with no build system, development is strai
 
 ### High-Level System Design
 
-The entire game logic and rendering is contained in a single `main.js` file (~3,550 lines) within a `ZumaGame` class, plus a standalone `SfxEngine` class for procedural audio. While currently monolithic, the code is logically organized into 10 clear subsystems:
+The game logic and rendering is organized as ES modules within a `ZumaGame` orchestrator class in `main.js`, plus 7 focused module files. The code is logically organized into 10 clear subsystems:
 
 1. **Configuration & Constants** (top of file)
    - Fixed logical resolution: `430 x 932` (portrait mobile)
@@ -225,12 +226,7 @@ After experiments with full-sphere UV projection (which caused center stretching
 
 ## Known Technical Debt
 
-1. **Monolithic File**: `main.js` is 2,527 lines in one class. Future modularization candidates:
-   - `config.js` — Constants and palettes
-   - `path.js` — Path sampling and geometry
-   - `chain-system.js` — Ball insertion, removal, splitting
-   - `score-system.js` — Action contexts and scoring
-   - `render.js` — All drawing functions
+1. **~~Monolithic File~~**: ✅ Resolved — `main.js` has been split into 8 ES modules (config, sfx, path, chain, match, projectile, render, main). ZumaGame remains the orchestrator with delegation wrappers.
    
 2. **Offset/Impact Overload**: Fields like `impact`, `offset`, `offsetMode` conflate rule state with animation state. Cleaner refactor would separate:
    - Rule state (e.g., "is in split?")
@@ -256,18 +252,17 @@ When working on Phase 3 tasks:
 - **Do** improve ball rendering, add visual feedback, and refine hand-feel within current constraints
 - Split/merge hand-feel optimization is welcome but should not alter rule correctness
 
-## Recommended Future Refactoring Cuts
+## Completed Refactoring
 
-When/if modularization begins, prioritize in this order:
+The modularization described below has been completed. The codebase is now split into 8 ES modules:
 
-1. **Path system first** (lowest risk)
-   - Pure math; minimal coupling to other subsystems
-   
-2. **Scoring system second** (clear boundaries)
-   - Already logically separate; natural module boundary
-   
-3. **Split-state system last** (most fragile)
-   - Highest coupling to chain movement; defer until you have high confidence in the rules
+1. **Path system** (`path.js`) — Pure math; zero coupling to game state ✅
+2. **Scoring system** (`match.js`) — Clear boundaries; action contexts + match detection ✅
+3. **Chain/Split system** (`chain.js`) — Highest coupling, but cleanly extracted ✅
+4. **Projectile system** (`projectile.js`) — Flight, collision, insertion ✅
+5. **Rendering** (`render.js`) — All draw*, texture generation ✅
+6. **Audio** (`sfx.js`) — Self-contained SfxEngine class ✅
+7. **Config** (`config.js`) — Constants and palettes ✅
 
 ## Debugging Tips
 
@@ -281,13 +276,43 @@ When/if modularization begins, prioritize in this order:
 
 ```
 .
-├── index.html              # Single HTML entry point (minimal)
+├── index.html              # Single HTML entry point (<script type="module">)
 ├── style.css               # Canvas sizing, page layout, color scheme
-├── main.js                 # Entire game (~3,550 lines; single ZumaGame class)
+├── config.js               # Constants, palettes, tuning params (~104 lines)
+├── sfx.js                  # SfxEngine class — procedural audio (~181 lines)
+├── path.js                 # Pure path geometry functions (~197 lines)
+├── chain.js                # Chain + split/merge + ball transitions (~385 lines)
+├── match.js                # Match detection, scoring, action contexts (~330 lines)
+├── projectile.js           # Projectile flight, collision, insertion (~141 lines)
+├── render.js               # All draw*, texture generation, HUD (~1729 lines)
+├── main.js                 # ZumaGame orchestrator, input, particles, loop (~703 lines)
 ├── CLAUDE.md               # This file
 ├── TECHNICAL_ARCHITECTURE.md  # Implementation deep-dive (reference docs)
 └── ZUMA_PLAN.md            # Phase 1/2/3 planning and history
 ```
+
+### Module Dependency Graph (acyclic)
+
+```
+config.js   sfx.js (no deps)
+   ↑
+   ├── path.js
+   ├── chain.js
+   ├── match.js
+   ├── projectile.js
+   ├── render.js
+   └── main.js ← imports from ALL modules
+```
+
+No module imports from a sibling module (except config.js). All cross-subsystem calls flow through `game.*` method wrappers on ZumaGame, preventing circular dependencies.
+
+### ES Module Architecture
+
+- Uses `<script type="module">` — must be served via HTTP (not `file://`)
+- `ZumaGame` class in main.js is the central orchestrator owning all state
+- Extracted functions take `game` (the ZumaGame instance) as first parameter
+- ZumaGame has thin delegation wrappers routing to module functions
+- Development: `python3 -m http.server 8000` then open `http://localhost:8000`
 
 ## Mobile Viewport Notes
 
