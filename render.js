@@ -1783,6 +1783,70 @@ function drawLevelSelectScreen(game, ctx) {
   ctx.textAlign = "start";
 }
 
+// Draw a tiny path outline inside a level button for visual preview.
+function drawPathThumbnail(ctx, level, rect) {
+  const cx = rect.x + rect.w / 2;
+  const thumbY = rect.y + 44;
+  const thumbW = rect.w * 0.5;
+  const thumbH = 50;
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(200, 180, 120, 0.25)";
+  ctx.lineWidth = 1.5;
+  ctx.lineCap = "round";
+
+  const pathType = level.pathType || "spiral";
+
+  if (pathType === "spiral") {
+    ctx.beginPath();
+    for (let i = 0; i <= 60; i++) {
+      const t = i / 60;
+      const angle = t * Math.PI * 4;
+      const r = 22 - t * 14;
+      const x = cx + Math.cos(angle) * r;
+      const y = thumbY + Math.sin(angle) * r * 0.7;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  } else if (pathType === "serpentine") {
+    ctx.beginPath();
+    for (let i = 0; i <= 60; i++) {
+      const t = i / 60;
+      const x = cx + Math.sin(t * Math.PI * 3) * thumbW * 0.4;
+      const y = thumbY - thumbH * 0.4 + t * thumbH * 0.8;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  } else if (pathType === "rectangular") {
+    ctx.beginPath();
+    const inset = 8;
+    ctx.moveTo(cx + thumbW * 0.4, thumbY - thumbH * 0.35);
+    ctx.lineTo(cx - thumbW * 0.4, thumbY - thumbH * 0.35);
+    ctx.lineTo(cx - thumbW * 0.4, thumbY + thumbH * 0.35);
+    ctx.lineTo(cx + thumbW * 0.4, thumbY + thumbH * 0.35);
+    ctx.lineTo(cx + thumbW * 0.4, thumbY - thumbH * 0.35 + inset);
+    ctx.lineTo(cx - thumbW * 0.4 + inset, thumbY - thumbH * 0.35 + inset);
+    ctx.stroke();
+  } else if (pathType === "zigzag") {
+    ctx.beginPath();
+    const rows = 5;
+    for (let r = 0; r < rows; r++) {
+      const y = thumbY - thumbH * 0.35 + (r / (rows - 1)) * thumbH * 0.7;
+      const goLeft = r % 2 === 0;
+      const fromX = goLeft ? cx + thumbW * 0.4 : cx - thumbW * 0.4;
+      const toX = goLeft ? cx - thumbW * 0.4 : cx + thumbW * 0.4;
+      if (r === 0) ctx.moveTo(fromX, y);
+      else ctx.lineTo(fromX, y);
+      ctx.lineTo(toX, y);
+    }
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
 function drawLevelButton(game, ctx, level) {
   const rect = game.getLevelButtonRect(level.id);
   const isUnlocked = level.id <= game.levelProgress.unlockedLevel;
@@ -1836,6 +1900,10 @@ function drawLevelButton(game, ctx, level) {
     ctx.font = "600 11px Georgia";
     ctx.fillStyle = "#c8bfa8";
     ctx.fillText(`最高分: ${highScore}`, cx, rect.y + 100 + (isPressed ? 1 : 0));
+  }
+
+  if (isUnlocked) {
+    drawPathThumbnail(ctx, level, rect);
   }
 
   if (isUnlocked) {
