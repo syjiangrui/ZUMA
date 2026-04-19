@@ -566,13 +566,13 @@ closedDistance = initialGap - currentGap
 frontPullTarget = min(maxPull, closedDistance * ratio)
 ```
 
-然后再通过 `getSplitLocalOffset(index)` 分配到整段前链上：
+然后通过 `getSplitLocalOffset(index)` 对整段前链施加**均匀**的负向位移（刚性平移）：
 
-- 接缝附近位移最大
-- 远端位移较小
-- 但不会完全为 0
+- 所有前段球获得相同的 `-frontPull` 偏移
+- 球间间距始终不变（保持 1px 重叠）
+- 整段像刚体一样向接缝方向后退
 
-这使得视觉上更接近“整段前链被吸回来”，而不只是最后一颗球单独抽动。
+参数调优使前段回拉速度与后段追赶速度一致（`RATIO=1.0`），视觉上前后双向对称合拢。
 
 ### 11.6 为什么前链回拉和并链要分开处理
 
@@ -595,9 +595,9 @@ frontPullTarget = min(maxPull, closedDistance * ratio)
 
 当前做法：
 
-1. 取接缝位置的前链局部回拉量
+1. 取前链的统一回拉量（`-frontPull`）
 2. 把它吸收到 `chainHeadS`
-3. 把其余的局部差异吸收到每颗球自己的 `offset`
+3. 前段球无残留差异（刚性平移下 residual = 0）；后段球获得等量正向 offset 补偿 baseline 偏移
 4. 清空 `splitState`
 
 这样做的意义：
