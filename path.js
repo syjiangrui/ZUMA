@@ -9,7 +9,15 @@ export function createPath(shooterX, shooterY, pathType = "spiral", pathParams =
     case "spiral":
       sampled = generateSpiralPath(shooterX, shooterY, pathParams);
       break;
-    // Future path types will be added here (serpentine, rectangular, zigzag).
+    case "serpentine":
+      sampled = generateSerpentinePath(shooterX, shooterY, pathParams);
+      break;
+    case "rectangular":
+      sampled = generateRectangularPath(shooterX, shooterY, pathParams);
+      break;
+    case "zigzag":
+      sampled = generateZigzagPath(shooterX, shooterY, pathParams);
+      break;
     default:
       sampled = generateSpiralPath(shooterX, shooterY, pathParams);
       break;
@@ -105,6 +113,165 @@ function generateSpiralPath(shooterX, shooterY, params = {}) {
   }
 
   sampled.push(...spiralPoints);
+  return sampled;
+}
+
+// S-shaped serpentine path — the track weaves horizontally back and forth
+// down the screen. Each curve is a half-sine wave.
+function generateSerpentinePath(shooterX, shooterY, params = {}) {
+  const curves = params.curves ?? 5;
+  const amplitude = params.amplitude ?? 140;
+  const verticalSpan = params.verticalSpan ?? 700;
+  const topY = params.topY ?? 100;
+  const centerX = params.centerX ?? GAME_WIDTH / 2;
+  const samplePerCurve = 80;
+
+  const sampled = [];
+  const entryY = topY - 20;
+  sampled.push({ x: GAME_WIDTH + 96, y: entryY });
+  sampled.push({ x: GAME_WIDTH + 40, y: entryY });
+  sampled.push({ x: centerX + amplitude + 20, y: entryY });
+
+  for (let c = 0; c < curves; c++) {
+    const startY = topY + (c / curves) * verticalSpan;
+    const endY = topY + ((c + 1) / curves) * verticalSpan;
+    const direction = c % 2 === 0 ? 1 : -1;
+
+    for (let s = 0; s <= samplePerCurve; s++) {
+      const t = s / samplePerCurve;
+      const y = startY + (endY - startY) * t;
+      const x = centerX + direction * amplitude * Math.sin(t * Math.PI);
+      sampled.push({ x, y });
+    }
+  }
+
+  return sampled;
+}
+
+// Rectangular spiral path — the track spirals inward in rounded rectangles.
+function generateRectangularPath(shooterX, shooterY, params = {}) {
+  const rings = params.rings ?? 3;
+  const outerW = params.outerW ?? 360;
+  const outerH = params.outerH ?? 700;
+  const shrink = params.shrink ?? 60;
+  const cornerRadius = params.cornerRadius ?? 40;
+  const topY = params.topY ?? 100;
+  const centerX = params.centerX ?? GAME_WIDTH / 2;
+  const samplesPerSide = 40;
+  const samplesPerCorner = 16;
+
+  const sampled = [];
+  const startX = centerX + outerW / 2 + 50;
+  const startY = topY;
+  sampled.push({ x: GAME_WIDTH + 96, y: startY });
+  sampled.push({ x: startX, y: startY });
+
+  for (let ring = 0; ring < rings; ring++) {
+    const w = outerW - ring * shrink * 2;
+    const h = outerH - ring * shrink * 2;
+    if (w < 60 || h < 60) break;
+
+    const left = centerX - w / 2;
+    const right = centerX + w / 2;
+    const top = topY + ring * shrink;
+    const bottom = top + h;
+    const r = Math.min(cornerRadius, w / 4, h / 4);
+
+    const cw = ring % 2 === 0;
+
+    const segments = cw ? [
+      { type: "line", from: { x: right - r, y: top }, to: { x: left + r, y: top } },
+      { type: "corner", cx: left + r, cy: top + r, startA: -Math.PI / 2, endA: Math.PI, r },
+      { type: "line", from: { x: left, y: top + r }, to: { x: left, y: bottom - r } },
+      { type: "corner", cx: left + r, cy: bottom - r, startA: Math.PI, endA: Math.PI / 2, r },
+      { type: "line", from: { x: left + r, y: bottom }, to: { x: right - r, y: bottom } },
+      { type: "corner", cx: right - r, cy: bottom - r, startA: Math.PI / 2, endA: 0, r },
+      { type: "line", from: { x: right, y: bottom - r }, to: { x: right, y: top + r + (ring < rings - 1 ? shrink : 0) } },
+      { type: "corner", cx: right - r, cy: top + r + (ring < rings - 1 ? shrink : 0), startA: 0, endA: -Math.PI / 2, r },
+    ] : [
+      { type: "line", from: { x: left + r, y: top }, to: { x: right - r, y: top } },
+      { type: "corner", cx: right - r, cy: top + r, startA: -Math.PI / 2, endA: 0, r },
+      { type: "line", from: { x: right, y: top + r }, to: { x: right, y: bottom - r } },
+      { type: "corner", cx: right - r, cy: bottom - r, startA: 0, endA: Math.PI / 2, r },
+      { type: "line", from: { x: right - r, y: bottom }, to: { x: left + r, y: bottom } },
+      { type: "corner", cx: left + r, cy: bottom - r, startA: Math.PI / 2, endA: Math.PI, r },
+      { type: "line", from: { x: left, y: bottom - r }, to: { x: left, y: top + r + (ring < rings - 1 ? shrink : 0) } },
+      { type: "corner", cx: left + r, cy: top + r + (ring < rings - 1 ? shrink : 0), startA: Math.PI, endA: -Math.PI / 2, r: Math.min(r, shrink / 2) },
+    ];
+
+    for (const seg of segments) {
+      if (seg.type === "line") {
+        for (let s = 0; s <= samplesPerSide; s++) {
+          const t = s / samplesPerSide;
+          sampled.push({
+            x: seg.from.x + (seg.to.x - seg.from.x) * t,
+            y: seg.from.y + (seg.to.y - seg.from.y) * t,
+          });
+        }
+      } else {
+        const angSpan = seg.endA - seg.startA;
+        for (let s = 0; s <= samplesPerCorner; s++) {
+          const t = s / samplesPerCorner;
+          const a = seg.startA + angSpan * t;
+          sampled.push({
+            x: seg.cx + Math.cos(a) * seg.r,
+            y: seg.cy + Math.sin(a) * seg.r,
+          });
+        }
+      }
+    }
+  }
+
+  return sampled;
+}
+
+// Zigzag path — the track goes left-right in sharp switchbacks down the screen.
+function generateZigzagPath(shooterX, shooterY, params = {}) {
+  const rows = params.rows ?? 7;
+  const marginX = params.marginX ?? 40;
+  const topY = params.topY ?? 80;
+  const rowHeight = params.rowHeight ?? 100;
+  const turnRadius = params.turnRadius ?? 36;
+  const samplesPerRow = 50;
+  const samplesPerTurn = 20;
+
+  const left = marginX;
+  const right = GAME_WIDTH - marginX;
+
+  const sampled = [];
+  sampled.push({ x: GAME_WIDTH + 96, y: topY });
+  sampled.push({ x: right + 20, y: topY });
+
+  for (let row = 0; row < rows; row++) {
+    const y = topY + row * rowHeight;
+    const goingLeft = row % 2 === 0;
+
+    const fromX = goingLeft ? right : left;
+    const toX = goingLeft ? left : right;
+    for (let s = 0; s <= samplesPerRow; s++) {
+      const t = s / samplesPerRow;
+      sampled.push({ x: fromX + (toX - fromX) * t, y });
+    }
+
+    if (row < rows - 1) {
+      const turnCX = toX;
+      const nextY = y + rowHeight;
+      const midY = (y + nextY) / 2;
+      const turnR = Math.min(turnRadius, rowHeight / 2);
+
+      for (let s = 1; s <= samplesPerTurn; s++) {
+        const t = s / samplesPerTurn;
+        const angle = goingLeft
+          ? -Math.PI / 2 + t * Math.PI
+          : Math.PI / 2 - t * Math.PI;
+        sampled.push({
+          x: turnCX + Math.cos(angle) * turnR * (goingLeft ? -1 : 1),
+          y: midY + Math.sin(angle) * (rowHeight / 2 - turnR) + Math.sin(t * Math.PI) * turnR,
+        });
+      }
+    }
+  }
+
   return sampled;
 }
 
