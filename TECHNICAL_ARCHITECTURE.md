@@ -504,6 +504,16 @@ levels.js (LEVELS[i].pathType, pathParams)
 6. 判断这是普通闭合，还是创建一个新的断链
 7. 在合适时机为接缝再安排一次延迟匹配
 
+补充规则：
+
+- 如果删除区间吃掉了当前**可见头球**，不能沿用普通“后方整段补位”的处理
+- 这时要先基于最新 `s` 找到首颗 `0 <= s <= totalPathLength` 的球
+- 若删除区间覆盖了它，则说明这次删除会改变当前屏幕上看到的链头
+- 删除后要把它前面那些已经越出可玩路径的 leader balls 一并裁掉
+- 再把这段裁剪量和本次删除量吸收到 `chainHeadS`
+- 如果前段 `splitState.frontPull` 的分布也因此变化，还要再做一次 visible-head anchor 对齐，保证新的首颗可见球保持删除前的位置
+- 只有这样，剩余可见球才会继续按正常传送带速度前进，而不会朝“删除前的满链目标位置”做一次假追赶
+
 ### 11.3 hasGapBetween()
 
 当前原型只允许存在一个真实断口。
@@ -513,6 +523,28 @@ levels.js (LEVELS[i].pathType, pathParams)
 - 这对索引是否正好跨过 `splitState.index`
 
 这条规则是当前断链连锁正确性的关键。
+
+### 11.3A 可见头消除的特殊处理
+
+普通消除时，我们会给删除区间后方的球统一加负向 `offset`，让它们自己把空位补上。
+
+但如果被删掉的是当前屏幕上的链头，这样做会出错：
+
+- 数组前面那些其实已经越出可玩路径的球，仍然会参与“满链目标位置”的计算
+- 结果就是剩余可见球会突然用 `close` 速度猛追一段
+- 视觉上像是在补旧账，而不是延续当前滚动
+
+现在的修正步骤是：
+
+1. 先 `syncChainPositions()`，避免用旧的 `s` 做判断
+2. 找到当前首颗可见球 `firstVisibleIndex`
+3. 若删除区间覆盖它，说明这是 visible-head removal
+4. 删除后顺手裁掉它前方那些已越界 leader balls
+5. 用 `shiftChainBaseline()` / `absorbHeadRemovalIntoBaseline()` 把这部分距离吸收到 `chainHeadS`
+6. 若删除前存在前链回拉，还要用 `alignVisibleHeadToAnchor()` 再校正一次 shared baseline
+7. 若剩余整段还带着完全相同的 `close` offset，则再吸收到 baseline，避免最后一段假冲刺
+
+核心思想不是“让球不动”，而是“把共有位移从 per-ball offset 转回 shared baseline”。
 
 ### 11.4 创建断链
 

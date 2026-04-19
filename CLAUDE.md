@@ -65,6 +65,7 @@ The game logic and rendering is organized as ES modules within a `ZumaGame` orch
    - All balls on track share a single base position: `chainHeadS`
    - Each ball's actual position: `s = chainHeadS - (index * BALL_SPACING) + offset + splitOffset`
    - No per-ball velocity; movement is driven by advancing `chainHeadS`
+   - If a removal consumes the current visible head, exited leader balls are trimmed and `chainHeadS` is re-based so the surviving visible chain keeps its current pose instead of sprinting toward an old packed target
    - Enables stable insertion, removal, and re-linking
 
 6. **Split State (Chain Breaking)** (`splitState`, `resolveSplitClosure()`, `absorbSplitState()`)
@@ -171,6 +172,8 @@ finalS = chainHeadS - (index * BALL_SPACING) + offset + getSplitLocalOffset(inde
 
 This is **not** a per-ball velocity system. Movement is unified by advancing `chainHeadS`, then applying **temporary displacements** (`offset`) for transitions. This design avoids compound floating-point errors and makes insertion/removal deterministic.
 
+When a match removes the **frontmost visible** ball, `resolveMatchesFrom()` first refreshes `s`, detects that visible head, trims any already-exited leaders ahead of it, and re-bases `chainHeadS` instead of leaving a shared `close` offset behind. That special case keeps the next surviving visible ball anchored in place, so the chain continues at conveyor speed rather than doing a last-frame catch-up burst.
+
 ### Offset States
 
 The `offset` field handles all temporary position changes:
@@ -248,7 +251,7 @@ After experiments with full-sphere UV projection (which caused center stretching
 - **Not Yet**: Multi-level, special ball types, difficulty curves, save/load (Phase 4)
 
 When working on Phase 3 tasks:
-- **Do not** change `chainHeadS` logic, offset speed tuning, or match detection rules (they are stable)
+- **Do not** casually change `chainHeadS` / offset / match rules; the visible-head-removal rebase path is now part of the stable baseline behavior
 - **Do** improve ball rendering, add visual feedback, and refine hand-feel within current constraints
 - Split/merge hand-feel optimization is welcome but should not alter rule correctness
 
@@ -286,6 +289,7 @@ The modularization described below has been completed. The codebase is now split
 ## Debugging Tips
 
 - **Ball position wrong?** Check `chainHeadS`, `offset`, and `getSplitLocalOffset()` in sequence. Do not assume per-ball velocity.
+- **Visible head disappears and survivors sprint forward?** Inspect the visible-head path in `resolveMatchesFrom()` and confirm exited leaders were absorbed into `chainHeadS` instead of being left as shared `close` offsets.
 - **Match not triggering?** Verify `pendingMatchChecks` queue is processing and `hasGapBetween()` is not blocking across a split.
 - **Projectile missing collision?** Check `findChainCollision()` distance threshold and confirm projectile velocity is not skipping frames (see `dt` clamping at 0.033).
 - **Split not merging?** Inspect `resolveSplitClosure()` epsilon and confirm rear offset has caught the animated front position.
@@ -388,4 +392,3 @@ Per-level overrides for chainCount, chainSpeed, and colorCount are in `levels.js
 - **TECHNICAL_ARCHITECTURE.md**: Detailed explanation of current implementation, data models, and rendering pipeline
 - **ZUMA_PLAN.md**: Development phases, task breakdown, risk analysis, and historical progress log
 - Original Zuma game mechanics: PopCap's "Zuma" (2003) — centerpiece spiral track, three-in-a-row matches, chain break/relink
-

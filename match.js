@@ -192,6 +192,79 @@ export function setBallAction(game, index, actionId) {
   game.chain[index].lastActionId = actionId;
 }
 
+function absorbHeadRemovalIntoBaseline(game, removedCount) {
+  if (removedCount <= 0) {
+    return;
+  }
+
+  const baselineShift = removedCount * BALL_SPACING;
+  shiftChainBaseline(game, -baselineShift);
+}
+
+function shiftChainBaseline(game, deltaS) {
+  if (!deltaS) {
+    return;
+  }
+
+  game.chainHeadS += deltaS;
+
+  // During the intro roll-in, keep the remaining entrance distance unchanged.
+  if (game.chainIntro) {
+    game.chainIntro.targetHeadS += deltaS;
+  }
+}
+
+function alignVisibleHeadToAnchor(game, anchorS) {
+  if (anchorS === null || anchorS === undefined || game.chain.length === 0) {
+    return;
+  }
+
+  game.syncChainPositions();
+  // A visible-head removal may also shrink the front split segment, which
+  // changes getSplitLocalOffset() distribution. Correct the shared baseline so
+  // the first surviving ball stays exactly where it was before the splice.
+  shiftChainBaseline(game, anchorS - game.chain[0].s);
+}
+
+function absorbLeadingBallOffsetIntoBaseline(game) {
+  if (game.chain.length === 0) {
+    return;
+  }
+
+  const sharedOffset = game.chain[0].offset;
+  if (!sharedOffset) {
+    return;
+  }
+
+  const canAbsorbSharedOffset = game.chain.every(
+    (ball) =>
+      ball.offsetMode === "close" &&
+      Math.abs(ball.offset - sharedOffset) < 0.04,
+  );
+  if (!canAbsorbSharedOffset) {
+    return;
+  }
+
+  // If the surviving chain keeps a shared offset after the visible head is
+  // removed (for example when an old front segment has already exited), absorb
+  // that common displacement into the baseline so the whole chain does not
+  // perform one last artificial catch-up sprint.
+  shiftChainBaseline(game, sharedOffset);
+  for (const ball of game.chain) {
+    ball.offset -= sharedOffset;
+    if (Math.abs(ball.offset) < 0.04) {
+      ball.offset = 0;
+      ball.offsetMode = "idle";
+    }
+  }
+}
+
+function getFirstVisibleBallIndex(game) {
+  return game.chain.findIndex(
+    (ball) => ball.s >= 0 && ball.s <= game.totalPathLength,
+  );
+}
+
 // A closure-triggered re-check must consider both sides of the seam. If we
 // only re-check the left ball, we miss cases where the new removable run
 // starts on the right side after closure.
@@ -231,6 +304,11 @@ export function resolveMatchesFrom(game, index, actionId = null, trigger = "inse
     return;
   }
 
+  // Match checks can fire mid-update before the usual end-of-frame sync, so
+  // refresh the current path distances before deciding whether the frontmost
+  // visible ball is part of this removal.
+  game.syncChainPositions();
+
   const resolvedActionId =
     actionId ?? game.chain[index].lastActionId ?? createActionContext(game, "chain");
 
@@ -263,6 +341,16 @@ export function resolveMatchesFrom(game, index, actionId = null, trigger = "inse
   }
 
   const removedCount = end - start + 1;
+  const firstVisibleIndex = getFirstVisibleBallIndex(game);
+  const removesVisibleHead =
+    firstVisibleIndex >= 0 &&
+    start <= firstVisibleIndex &&
+    end >= firstVisibleIndex;
+  const visibleHeadAnchorS =
+    removesVisibleHead && end + 1 < game.chain.length
+      ? game.chain[end + 1].s
+      : null;
+  const leadingTrimCount = removesVisibleHead ? start : 0;
   recordMatchEvent(game, { actionId: resolvedActionId, removedCount, trigger });
 
   // Spawn debris particles at each eliminated ball's position BEFORE the
@@ -271,12 +359,25 @@ export function resolveMatchesFrom(game, index, actionId = null, trigger = "inse
 
   game.chain.splice(start, removedCount);
 
-  // Every ball behind the removed group needs temporary negative offset so it
-  // can visually travel forward into the new empty space.
-  for (let index = start; index < game.chain.length; index += 1) {
-    game.chain[index].offset -= removedCount * BALL_SPACING;
-    game.chain[index].offsetMode = "close";
-    game.chain[index].lastActionId = resolvedActionId;
+  if (leadingTrimCount > 0) {
+    game.chain.splice(0, leadingTrimCount);
+  }
+
+  const effectiveStart = start - leadingTrimCount;
+
+  if (removesVisibleHead) {
+    // If the matched group consumes the current visible head, any already
+    // exited balls before it should not keep dragging the remaining visible
+    // segment toward an off-screen packed target.
+    absorbHeadRemovalIntoBaseline(game, removedCount + leadingTrimCount);
+  } else {
+    // Every ball behind the removed group needs temporary negative offset so it
+    // can visually travel forward into the new empty space.
+    for (let index = effectiveStart; index < game.chain.length; index += 1) {
+      game.chain[index].offset -= removedCount * BALL_SPACING;
+      game.chain[index].offsetMode = "close";
+      game.chain[index].lastActionId = resolvedActionId;
+    }
   }
 
   if (game.chain.length === 0) {
@@ -285,14 +386,17 @@ export function resolveMatchesFrom(game, index, actionId = null, trigger = "inse
     return;
   }
 
-  const seamIndex = Math.max(0, start - 1);
+  const seamIndex = Math.max(0, effectiveStart - 1);
   game.addImpact(seamIndex, 0.82);
   game.addImpact(Math.min(game.chain.length - 1, seamIndex + 1), 0.82);
 
   if (splitIndexBeforeRemoval !== null) {
-    if (end < splitIndexBeforeRemoval) {
-      game.splitState.index = Math.max(0, splitIndexBeforeRemoval - removedCount);
-    }
+    const trimmedBeforeSplit = Math.min(leadingTrimCount, splitIndexBeforeRemoval);
+    const removedBeforeSplit = end < splitIndexBeforeRemoval ? removedCount : 0;
+    game.splitState.index = Math.max(
+      0,
+      splitIndexBeforeRemoval - trimmedBeforeSplit - removedBeforeSplit,
+    );
 
     if (
       game.splitState &&
@@ -300,9 +404,9 @@ export function resolveMatchesFrom(game, index, actionId = null, trigger = "inse
     ) {
       game.splitState = null;
     }
-  } else if (start > 0 && start < game.chain.length) {
+  } else if (effectiveStart > 0 && effectiveStart < game.chain.length) {
     game.splitState = {
-      index: start,
+      index: effectiveStart,
       frontPull: 0,
       initialGap: 0,
       actionId: resolvedActionId,
@@ -312,6 +416,13 @@ export function resolveMatchesFrom(game, index, actionId = null, trigger = "inse
     // Once a fresh split is created, cross-gap matching is invalid until the
     // rear segment physically reconnects, so we stop here.
     return;
+  }
+
+  if (removesVisibleHead) {
+    alignVisibleHeadToAnchor(game, visibleHeadAnchorS);
+    if (!game.splitState) {
+      absorbLeadingBallOffsetIntoBaseline(game);
+    }
   }
 
   if (
