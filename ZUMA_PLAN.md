@@ -793,6 +793,7 @@ Current status:
 What has already changed in code (G):
 - Shooter replaced with a classic Zuma stone-frog: green-stone Mayan idol with moss-toned body, wider head/mouth, three head-crest ridges, Mayan zigzag decoration, warm amber round-pupil eyes (friendly, not menacing). Entire frog rotates with aim angle; ground shadow stays flat. 0.78× scale for better proportion. Procedural Canvas 2D, no external assets.
 - Frog belly socket shows current ball color (same as mouth); HUD "下一个" shows the actual next ball.
+- Shooter color generation now follows classic Zuma active-color behavior: current and next balls are sampled only from colors still present in the chain, and are revalidated after eliminations so extinct colors do not remain queued.
 - HUD panels, restart button and end cards are moving toward a stone altar / bronze trim look.
 - The track has been simplified toward a carved groove instead of a heavy framed pipe.
 - Balls now use a stone-body render plus a moving symbolic belt instead of the old flat rotating badge.
@@ -858,6 +859,7 @@ Next expected move:
 - 工作包 M（关卡数据模型）：已完成 — `levels.js` 8 关配置
 - 工作包 N（选关界面+切换）：已完成 — levelSelect 状态、Canvas 选关界面、关卡间导航
 - 工作包 O（难度曲线）：已完成 — 8 关参数递进（球数 20→42，速度 52→86，颜色 3→5）
+- 发射球颜色策略：已调整为经典祖玛式 active-color 规则，只从当前链上仍然存在的颜色中出球，避免生成已在棋盘上绝迹的死色
 - 工作包 P（本地存档）：已完成 — `save.js` localStorage 持久化
 - 工作包 Q（路径泛化）：已完成 — path.js 调度器 + 4 种路径生成器
 - 工作包 R（路径分配+打磨）：已完成 — 8 关分配不同路径、缩略图预览、淡入淡出过渡、全通关画面

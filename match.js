@@ -386,6 +386,8 @@ export function resolveMatchesFrom(game, index, actionId = null, trigger = "inse
     return;
   }
 
+  game.syncShooterPalettes();
+
   const seamIndex = Math.max(0, effectiveStart - 1);
   game.addImpact(seamIndex, 0.82);
   game.addImpact(Math.min(game.chain.length - 1, seamIndex + 1), 0.82);

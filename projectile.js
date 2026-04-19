@@ -59,6 +59,7 @@ export function fireProjectile(game) {
 
   game.currentPaletteIndex = game.nextPaletteIndex;
   game.nextPaletteIndex = game.getRandomPaletteIndex();
+  game.syncShooterPalettes();
 }
 
 export function findChainCollision(game) {

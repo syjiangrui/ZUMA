@@ -190,9 +190,15 @@ The speed difference is cosmetic handfeel, not a rule difference.
 ### Ball Color & Palette
 
 - 5 color palettes (red, green, blue, yellow, purple)
-- Currently only 4 used during play (index 0–3) to keep match density readable
+- Each level caps the palette pool with `levelConfig.colorCount` (3–5 colors)
+- Shooter balls use a Zuma-style active-color rule: colors are sampled from the currently visible chain first, then fall back to the remaining off-screen chain only if nothing is visible yet
+- After a color disappears from the visible board state, current/next shooter balls are re-rolled if needed so the player is not handed a dead color
 - Each palette paired with one temple glyph variant for visual identity
 - Procedural texture generated per palette on startup
+
+### Shooter Color Strategy
+
+Classic Zuma does not keep feeding fully random colors from the full level palette once some colors are gone. The practical rule is: the shooter samples from the colors still alive in the board state that the player is actively solving. In this prototype, that means the visible chain is authoritative during play, which avoids impossible cleanup states like a lone blue shot when the screen only contains red and yellow. Both the current ball and the next-ball preview follow that rule.
 
 ## Important Implementation Notes
 

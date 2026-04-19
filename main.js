@@ -342,6 +342,7 @@ class ZumaGame {
     if (!this.isRoundPlaying()) {
       return;
     }
+    this.syncShooterPalettes();
     this.updateProjectile(dt);
     this.updateRoundOutcome();
   }
@@ -435,8 +436,6 @@ class ZumaGame {
     this.roundEndTimer = 0;
     this.screenShake = 0;
     this.score = 0;
-    this.currentPaletteIndex = this.getRandomPaletteIndex();
-    this.nextPaletteIndex = this.getRandomPaletteIndex();
     this.shooter.angle = -Math.PI / 2;
     this.pointer.active = false;
     this.pointer.x = this.shooter.x + 90;
@@ -449,6 +448,8 @@ class ZumaGame {
     this.staticSceneCache = null;
 
     this.createChain();
+    this.currentPaletteIndex = this.getRandomPaletteIndex();
+    this.nextPaletteIndex = this.getRandomPaletteIndex();
   }
 
   // Switch to a specific level and start a fresh round.
@@ -490,9 +491,60 @@ class ZumaGame {
     updateHighScore(this.levelProgress, this.currentLevel, this.score);
   }
 
-  getRandomPaletteIndex() {
+  getActivePaletteIndices() {
+    const visiblePalettes = [];
+    const allChainPalettes = [];
+    const visibleSeen = new Set();
+    const allSeen = new Set();
+
+    for (const ball of this.chain) {
+      if (!allSeen.has(ball.paletteIndex)) {
+        allSeen.add(ball.paletteIndex);
+        allChainPalettes.push(ball.paletteIndex);
+      }
+
+      if (
+        ball.s >= 0 &&
+        ball.s <= this.totalPathLength &&
+        !visibleSeen.has(ball.paletteIndex)
+      ) {
+        visibleSeen.add(ball.paletteIndex);
+        visiblePalettes.push(ball.paletteIndex);
+      }
+    }
+
+    if (visiblePalettes.length > 0) {
+      return visiblePalettes;
+    }
+
+    if (allChainPalettes.length > 0) {
+      return allChainPalettes;
+    }
+
     const colorCount = this.levelConfig?.colorCount ?? 4;
-    return Math.floor(Math.random() * colorCount);
+    return Array.from({ length: colorCount }, (_, index) => index);
+  }
+
+  getRandomPaletteIndex() {
+    const activePalettes = this.getActivePaletteIndices();
+    return activePalettes[(Math.random() * activePalettes.length) | 0];
+  }
+
+  syncShooterPalettes() {
+    if (this.chain.length === 0) {
+      return;
+    }
+
+    const activePalettes = this.getActivePaletteIndices();
+    const activeSet = new Set(activePalettes);
+
+    if (!activeSet.has(this.currentPaletteIndex)) {
+      this.currentPaletteIndex = this.getRandomPaletteIndex();
+    }
+
+    if (!activeSet.has(this.nextPaletteIndex)) {
+      this.nextPaletteIndex = this.getRandomPaletteIndex();
+    }
   }
 
   // --- Input & UI ---------------------------------------------------------
