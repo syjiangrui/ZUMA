@@ -18,6 +18,12 @@ export function createPath(shooterX, shooterY, pathType = "spiral", pathParams =
     case "zigzag":
       sampled = generateZigzagPath(shooterX, shooterY, pathParams);
       break;
+    case "openArc":
+      sampled = generateOpenArcPath(shooterX, shooterY, pathParams);
+      break;
+    case "drawn":
+      sampled = generateDrawnPath(shooterX, shooterY, pathParams);
+      break;
     default:
       sampled = generateSpiralPath(shooterX, shooterY, pathParams);
       break;
@@ -50,8 +56,8 @@ function finalizePath(sampled) {
 
 // Archimedean spiral with off-screen entry segment — the original path type.
 function generateSpiralPath(shooterX, shooterY, params = {}) {
-  const centerX = (params.centerX ?? shooterX) + 11;
-  const centerY = (params.centerY ?? shooterY) + 8;
+  const centerX = params.centerX ?? (shooterX + 11);
+  const centerY = params.centerY ?? (shooterY + 8);
   const outerRadius = params.outerRadius ?? 206;
   const innerRadius = params.innerRadius ?? 84;
   const startAngle = params.startAngle ?? 0.96;
@@ -116,6 +122,76 @@ function generateSpiralPath(shooterX, shooterY, params = {}) {
   return sampled;
 }
 
+// Open arc path — a mobile-friendly sweeping curve that wraps around the
+// center play area without enclosing the shooter.
+function generateOpenArcPath(shooterX, shooterY, params = {}) {
+  const centerX = params.centerX ?? GAME_WIDTH / 2;
+  const centerY = params.centerY ?? shooterY - 340;
+  const outerRadiusX = params.outerRadiusX ?? 176;
+  const outerRadiusY = params.outerRadiusY ?? 204;
+  const innerRadiusX = params.innerRadiusX ?? 96;
+  const innerRadiusY = params.innerRadiusY ?? 118;
+  const startAngle = params.startAngle ?? -0.2 * Math.PI;
+  const endAngle = params.endAngle ?? 1.25 * Math.PI;
+  const sampleCount = params.sampleCount ?? 360;
+
+  const arcPoints = [];
+  for (let step = 0; step <= sampleCount; step += 1) {
+    const t = step / sampleCount;
+    const angle = startAngle + (endAngle - startAngle) * t;
+    const radiusX = outerRadiusX + (innerRadiusX - outerRadiusX) * t;
+    const radiusY = outerRadiusY + (innerRadiusY - outerRadiusY) * t;
+    arcPoints.push({
+      x: centerX + Math.cos(angle) * radiusX,
+      y: centerY + Math.sin(angle) * radiusY,
+    });
+  }
+
+  const joinPoint = arcPoints[0];
+  const nextPoint = arcPoints[1];
+  const tangentLength = Math.hypot(
+    nextPoint.x - joinPoint.x,
+    nextPoint.y - joinPoint.y,
+  ) || 1;
+  const tangentX = (nextPoint.x - joinPoint.x) / tangentLength;
+  const tangentY = (nextPoint.y - joinPoint.y) / tangentLength;
+
+  const entryStart = {
+    x: GAME_WIDTH + 96,
+    y: joinPoint.y + 12,
+  };
+  const entryControl1 = {
+    x: GAME_WIDTH + 40,
+    y: joinPoint.y + 10,
+  };
+  const entryControl2 = {
+    x: joinPoint.x - tangentX * 108,
+    y: joinPoint.y - tangentY * 108,
+  };
+
+  const sampled = [];
+  const entrySampleCount = 52;
+  for (let step = 0; step < entrySampleCount; step += 1) {
+    const t = step / entrySampleCount;
+    const inv = 1 - t;
+    sampled.push({
+      x:
+        inv * inv * inv * entryStart.x +
+        3 * inv * inv * t * entryControl1.x +
+        3 * inv * t * t * entryControl2.x +
+        t * t * t * joinPoint.x,
+      y:
+        inv * inv * inv * entryStart.y +
+        3 * inv * inv * t * entryControl1.y +
+        3 * inv * t * t * entryControl2.y +
+        t * t * t * joinPoint.y,
+    });
+  }
+
+  sampled.push(...arcPoints);
+  return sampled;
+}
+
 // S-shaped serpentine path — the track weaves horizontally back and forth
 // down the screen. Each curve is a half-sine wave.
 function generateSerpentinePath(shooterX, shooterY, params = {}) {
@@ -129,8 +205,21 @@ function generateSerpentinePath(shooterX, shooterY, params = {}) {
   const sampled = [];
   const entryY = topY - 20;
   sampled.push({ x: GAME_WIDTH + 96, y: entryY });
-  sampled.push({ x: GAME_WIDTH + 40, y: entryY });
-  sampled.push({ x: centerX + amplitude + 20, y: entryY });
+
+  const firstCurveStartY = topY;
+  const firstDirection = 1;
+  const firstPeakX = centerX + firstDirection * amplitude;
+
+  // Smooth entry: curve from off-screen into the first sine wave
+  const entrySteps = 40;
+  for (let s = 0; s <= entrySteps; s++) {
+    const t = s / entrySteps;
+    const y = entryY + (firstCurveStartY - entryY) * t;
+    // Ease into the sine amplitude so the entry blends naturally
+    const easedAmp = amplitude * Math.sin(t * Math.PI * 0.5);
+    const x = centerX + firstDirection * easedAmp * Math.sin(t * Math.PI * 0.5);
+    sampled.push({ x, y });
+  }
 
   for (let c = 0; c < curves; c++) {
     const startY = topY + (c / curves) * verticalSpan;
@@ -345,4 +434,101 @@ export function catmullRom(p0, p1, p2, p3, t) {
         (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
         (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3),
   };
+}
+
+// Drawn path — free combination of lines, arcs, and circles.
+// pathParams.segments is an array of segment objects:
+//   line:   { type:"line", x1, y1, x2, y2 }
+//   arc:    { type:"arc", cx, cy, radius, startAngle, endAngle }
+//   circle: { type:"circle", cx, cy, radius, startAngle, turns }
+function generateDrawnPath(shooterX, shooterY, params = {}) {
+  const segments = params.segments ?? [];
+  const SAMPLES_PER_PX = 2;
+  const allPoints = [];
+  let prevEnd = null;
+
+  for (const seg of segments) {
+    let segPoints = [];
+
+    if (seg.type === "line") {
+      const dx = seg.x2 - seg.x1;
+      const dy = seg.y2 - seg.y1;
+      const len = Math.hypot(dx, dy);
+      const n = Math.max(2, Math.round(len * SAMPLES_PER_PX));
+      for (let s = 0; s <= n; s++) {
+        const t = s / n;
+        segPoints.push({ x: seg.x1 + dx * t, y: seg.y1 + dy * t });
+      }
+    } else if (seg.type === "arc") {
+      const { cx, cy, radius, startAngle, endAngle } = seg;
+      const span = endAngle - startAngle;
+      const n = Math.max(4, Math.round(Math.abs(span) * radius * SAMPLES_PER_PX * 0.3));
+      for (let s = 0; s <= n; s++) {
+        const t = s / n;
+        const a = startAngle + span * t;
+        segPoints.push({ x: cx + Math.cos(a) * radius, y: cy + Math.sin(a) * radius });
+      }
+    } else if (seg.type === "circle") {
+      const { cx, cy, radius, startAngle, turns } = seg;
+      const totalAngle = turns * TAU;
+      const n = Math.max(8, Math.round(Math.abs(totalAngle) * radius * SAMPLES_PER_PX * 0.3));
+      for (let s = 0; s <= n; s++) {
+        const t = s / n;
+        const a = startAngle + totalAngle * t;
+        segPoints.push({ x: cx + Math.cos(a) * radius, y: cy + Math.sin(a) * radius });
+      }
+    }
+
+    // Auto-connect: snap small gaps, bridge large gaps
+    if (prevEnd && segPoints.length > 0) {
+      const segStart = segPoints[0];
+      const gap = Math.hypot(segStart.x - prevEnd.x, segStart.y - prevEnd.y);
+      if (gap < 15) {
+        // Small gap: snap first point to prevEnd
+        segPoints[0] = { x: prevEnd.x, y: prevEnd.y };
+      } else {
+        // Large gap: bridge with a line
+        const bridgeN = Math.max(2, Math.round(gap * SAMPLES_PER_PX));
+        for (let s = 1; s <= bridgeN; s++) {
+          const t = s / bridgeN;
+          allPoints.push({
+            x: prevEnd.x + (segStart.x - prevEnd.x) * t,
+            y: prevEnd.y + (segStart.y - prevEnd.y) * t,
+          });
+        }
+      }
+    }
+
+    // Deduplicate first point if it matches previous end
+    if (allPoints.length > 0 && segPoints.length > 0) {
+      const last = allPoints[allPoints.length - 1];
+      const first = segPoints[0];
+      if (Math.hypot(last.x - first.x, last.y - first.y) < 2) {
+        segPoints = segPoints.slice(1);
+      }
+    }
+    allPoints.push(...segPoints);
+
+    if (allPoints.length > 0) {
+      prevEnd = allPoints[allPoints.length - 1];
+    }
+  }
+
+  // Add off-screen entry segment: horizontal line from right edge
+  if (allPoints.length > 0) {
+    const first = allPoints[0];
+    const entryStart = { x: GAME_WIDTH + 100, y: first.y };
+    const en = 40;
+    const entryPts = [];
+    for (let s = 0; s <= en; s++) {
+      const t = s / en;
+      entryPts.push({
+        x: entryStart.x + (first.x - entryStart.x) * t,
+        y: first.y,
+      });
+    }
+    return [...entryPts, ...allPoints];
+  }
+
+  return allPoints;
 }

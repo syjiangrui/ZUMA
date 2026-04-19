@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>ZUMA 路径绘图编辑器</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0e1218;color:#ddd;font-family:-apple-system,sans-serif;display:flex;height:100vh;overflow:hidden}
+#sidebar{width:360px;min-width:360px;background:#161c24;border-right:1px solid #2a3444;display:flex;flex-direction:column;overflow:hidden}
+#sidebar-head{padding:12px 16px;border-bottom:1px solid #2a3444}
+#sidebar-head h1{color:#f0d57a;font-size:16px;font-family:Georgia}
+#sidebar-head .sub{color:#5a6a7a;font-size:11px;margin-top:2px}
+#toolbar{display:flex;gap:4px;padding:8px 16px;border-bottom:1px solid #2a3444;flex-wrap:wrap}
+.tool-btn{padding:5px 10px;border-radius:6px;border:1px solid #2a3444;background:#1a222e;color:#8a9aaa;cursor:pointer;font-size:12px;transition:all .15s}
+.tool-btn:hover{border-color:#4a5a6a;background:#222e3e}
+.tool-btn.active{background:#2a3a50;color:#f0d57a;border-color:#f0d57a}
+.tool-btn.danger{color:#d45040;border-color:#5a2a2a}
+.tool-btn.danger:hover{background:#3a1a1a;border-color:#d45040}
+#seg-list-wrap{flex:1;overflow-y:auto;padding:8px}
+#seg-list{display:flex;flex-direction:column;gap:6px}
+.seg-card{background:#1a222e;border:1px solid #2a3444;border-radius:8px;padding:8px 10px;cursor:pointer;transition:all .15s;position:relative}
+.seg-card:hover{border-color:#4a5a6a}
+.seg-card.selected{border-color:#f0d57a;background:#1e2838}
+.seg-card .seg-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.seg-card .seg-type{color:#f0d57a;font-size:12px;font-weight:600}
+.seg-card .seg-del{color:#5a3030;cursor:pointer;font-size:14px;line-height:1}
+.seg-card .seg-del:hover{color:#d45040}
+.seg-card .seg-params{display:flex;flex-direction:column;gap:3px}
+.seg-card .p-row{display:flex;align-items:center;gap:4px;font-size:11px}
+.seg-card .p-row label{width:40px;color:#5a6a7a;flex-shrink:0}
+.seg-card .p-row input{flex:1;background:#0e1218;border:1px solid #2a3444;color:#ddd;border-radius:4px;padding:2px 4px;font-size:11px;width:0}
+.seg-card .p-row input:focus{border-color:#f0d57a;outline:none}
+.seg-card .p-row .unit{color:#5a6a7a;width:16px;flex-shrink:0}
+#export-bar{padding:8px 16px;border-top:1px solid #2a3444;display:flex;gap:6px}
+.btn{padding:7px 14px;border-radius:6px;border:1px solid #2a3444;background:#1a222e;color:#ddd;cursor:pointer;font-size:12px;transition:all .15s;text-align:center}
+.btn:hover{background:#2a3a50;border-color:#4a5a6a}
+.btn.primary{background:#3a5038;border-color:#6a9a64;color:#c0f0b0}
+.btn.primary:hover{background:#4a6048}
+#canvas-wrap{flex:1;display:flex;align-items:center;justify-content:center;background:#080c10;position:relative}
+#canvas-wrap canvas{border:1px solid #2a3444;border-radius:8px;box-shadow:0 0 40px rgba(0,0,0,0.5);cursor:crosshair}
+#hint{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);color:#3a4a5a;font-size:11px;pointer-events:none}
+.level-tabs{display:flex;gap:3px;margin-top:8px;flex-wrap:wrap}
+.lv-tab{padding:3px 8px;border-radius:4px;border:1px solid #2a3444;background:#1a222e;color:#6a7a8a;cursor:pointer;font-size:11px}
+.lv-tab:hover{border-color:#4a5a6a}
+.lv-tab.active{color:#f0d57a;border-color:#f0d57a;background:#2a3a50}
+#shooter-bar{padding:8px 16px;border-top:1px solid #2a3444;display:flex;gap:8px;align-items:center;font-size:11px}
+#shooter-bar label{color:#5a6a7a}
+#shooter-bar input{width:60px;background:#0e1218;border:1px solid #2a3444;color:#ddd;border-radius:4px;padding:2px 4px;font-size:11px}
+#shooter-bar input:focus{border-color:#f0d57a;outline:none}
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <div id="sidebar-head">
+    <h1>🛤️ 路径绘图编辑器</h1>
+    <div class="sub">用直线和弧线自由组合路径</div>
+    <div class="level-tabs" id="levelTabs"></div>
+  </div>
+
+  <div id="toolbar">
+    <button class="tool-btn" onclick="addSegment('line')">＋ 直线</button>
+    <button class="tool-btn" onclick="addSegment('arc')">＋ 弧线</button>
+    <button class="tool-btn" onclick="addSegment('circle')">＋ 圆</button>
+    <button class="tool-btn" onclick="flipSegment('h')">↔ 水平翻转</button>
+    <button class="tool-btn" onclick="flipSegment('v')">↕ 垂直翻转</button>
+    <button class="tool-btn" onclick="moveSegment(-1)">↑ 上移</button>
+    <button class="tool-btn" onclick="moveSegment(1)">↓ 下移</button>
+    <button class="tool-btn danger" onclick="deleteSegment()">✕ 删除</button>
+  </div>
+
+  <div id="seg-list-wrap">
+    <div id="seg-list"></div>
+  </div>
+
+  <div id="shooter-bar">
+    <label>射手 X:</label><input id="shX" type="number" value="215">
+    <label>Y:</label><input id="shY" type="number" value="764">
+    <button class="btn" onclick="updateShooter()" style="padding:3px 8px;font-size:11px">应用</button>
+  </div>
+
+  <div id="export-bar">
+    <button class="btn primary" onclick="exportLevel()" style="flex:1">导出本关</button>
+    <button class="btn" onclick="exportAll()" style="flex:1">导出全部</button>
+  </div>
+</div>
+
+<div id="canvas-wrap">
+  <canvas id="cv"></canvas>
+  <div id="hint">点击画布拖拽控制点 | 滚轮缩放 | 中键平移</div>
+</div>
+
+<script type="module">
+import { GAME_WIDTH, GAME_HEIGHT, TAU } from './config.js';
+
+// ─── Data ───────────────────────────────────────────────────────────
+// Each level stores: { name, shooterPos:{x,y}, segments:[...] }
+// Segment types:
+//   line:   { type:"line", x1,y1, x2,y2 }
+//   arc:    { type:"arc", cx,cy, radius, startAngle, endAngle }  (angles in radians)
+//   circle: { type:"circle", cx,cy, radius, startAngle, turns }  (turns = fraction of full circle)
+
+const LEVELS = [];
+for (let i = 0; i < 8; i++) {
+  LEVELS.push({
+    name: `第${i+1}关`,
+    shooterPos: { x: GAME_WIDTH * 0.5, y: GAME_HEIGHT * 0.82 },
+    segments: [],
+  });
+}
+// Pre-populate level 1: C-shaped rounded rectangle
+// Path: enter right-top → left → round-corner down → down → round-corner right → exit right-bottom
+// Based on user's sketch: green circle = shooter center, red arrows = entry/exit direction
+const L1_XL = 75, L1_YT = 170, L1_YB = 530, L1_R = 70; // layout constants
+LEVELS[0].segments = [
+  // 1. Top line: right → left
+  { type:"line", x1:395, y1:L1_YT,    x2:L1_XL+L1_R, y2:L1_YT },
+  // 2. Top-left corner: turn down (clockwise 90°)
+  { type:"arc", cx:L1_XL+L1_R, cy:L1_YT+L1_R, radius:L1_R, startAngle:-Math.PI/2, endAngle:-Math.PI },
+  // 3. Left side: down
+  { type:"line", x1:L1_XL, y1:L1_YT+L1_R, x2:L1_XL, y2:L1_YB-L1_R },
+  // 4. Bottom-left corner: turn right (clockwise 90°)
+  { type:"arc", cx:L1_XL+L1_R, cy:L1_YB-L1_R, radius:L1_R, startAngle:Math.PI, endAngle:Math.PI/2 },
+  // 5. Bottom line: left → right (exit)
+  { type:"line", x1:L1_XL+L1_R, y1:L1_YB,     x2:395,          y2:L1_YB },
+];
+LEVELS[0].shooterPos = { x:215, y:400 };
+
+let currentLevel = 0;
+let selectedSeg = -1;
+
+// Canvas state
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let scale = 0.55;
+let panX = 0, panY = 0;
+let dragging = null; // { segIndex, key, offsetX, offsetY } or 'shooter' or 'pan'
+let dragStart = null;
+let lastDragAngle = null; // for incremental angle updates
+
+// ─── Path generation from segments ──────────────────────────────────
+function segmentsToPoints(segments, shooterX, shooterY) {
+  const allPoints = [];
+  const SAMPLES_PER_UNIT = 2; // per px for lines, per radian for arcs
+  let prevEnd = null; // track previous segment's last point
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    let segPoints = [];
+
+    if (seg.type === 'line') {
+      const dx = seg.x2 - seg.x1, dy = seg.y2 - seg.y1;
+      const len = Math.hypot(dx, dy);
+      const n = Math.max(2, Math.round(len * SAMPLES_PER_UNIT));
+      for (let s = 0; s <= n; s++) {
+        const t = s / n;
+        segPoints.push({ x: seg.x1 + dx * t, y: seg.y1 + dy * t });
+      }
+    } else if (seg.type === 'arc') {
+      const { cx, cy, radius, startAngle, endAngle } = seg;
+      let span = endAngle - startAngle;
+      if (Math.abs(span) < 0.001) span = 0.01;
+      const n = Math.max(4, Math.round(Math.abs(span) * radius * SAMPLES_PER_UNIT * 0.3));
+      for (let s = 0; s <= n; s++) {
+        const t = s / n;
+        const a = startAngle + span * t;
+        segPoints.push({ x: cx + Math.cos(a) * radius, y: cy + Math.sin(a) * radius });
+      }
+    } else if (seg.type === 'circle') {
+      const { cx, cy, radius, startAngle, turns } = seg;
+      const totalAngle = turns * TAU;
+      const n = Math.max(8, Math.round(Math.abs(totalAngle) * radius * SAMPLES_PER_UNIT * 0.3));
+      for (let s = 0; s <= n; s++) {
+        const t = s / n;
+        const a = startAngle + totalAngle * t;
+        segPoints.push({ x: cx + Math.cos(a) * radius, y: cy + Math.sin(a) * radius });
+      }
+    }
+
+    // Auto-connect: snap small gaps, bridge large gaps
+    if (prevEnd && segPoints.length > 0) {
+      const segStart = segPoints[0];
+      const gap = Math.hypot(segStart.x - prevEnd.x, segStart.y - prevEnd.y);
+      if (gap < 15) {
+        // Small gap: snap — move first point to prevEnd to avoid tiny bridge
+        segPoints[0] = { x: prevEnd.x, y: prevEnd.y };
+      } else {
+        // Large gap: bridge with a line
+        const bridgeN = Math.max(2, Math.round(gap * SAMPLES_PER_UNIT));
+        for (let s = 1; s <= bridgeN; s++) {
+          const t = s / bridgeN;
+          allPoints.push({
+            x: prevEnd.x + (segStart.x - prevEnd.x) * t,
+            y: prevEnd.y + (segStart.y - prevEnd.y) * t,
+          });
+        }
+      }
+    }
+
+    // Add this segment's points (skip first if it duplicates prevEnd)
+    if (allPoints.length > 0 && segPoints.length > 0) {
+      const last = allPoints[allPoints.length - 1];
+      const first = segPoints[0];
+      if (Math.hypot(last.x - first.x, last.y - first.y) < 2) {
+        segPoints = segPoints.slice(1);
+      }
+    }
+    allPoints.push(...segPoints);
+
+    if (segPoints.length > 0 || allPoints.length > 0) {
+      prevEnd = allPoints[allPoints.length - 1];
+    }
+  }
+
+  // Add off-screen entry: horizontal line from right edge
+  if (allPoints.length > 0) {
+    const first = allPoints[0];
+    const entryStart = { x: GAME_WIDTH + 100, y: first.y };
+    const entryPts = [];
+    const en = 40;
+    for (let s = 0; s <= en; s++) {
+      const t = s / en;
+      entryPts.push({
+        x: entryStart.x + (first.x - entryStart.x) * t,
+        y: first.y,
+      });
+    }
+    return [...entryPts, ...allPoints];
+  }
+
+  return allPoints;
+}
+
+// ─── Render ─────────────────────────────────────────────────────────
+function render() {
+  const w = cv.width, h = cv.height;
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = '#080c10';
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.save();
+  ctx.translate(panX, panY);
+  ctx.scale(scale, scale);
+
+  // Grid
+  ctx.strokeStyle = 'rgba(42, 52, 68, 0.25)';
+  ctx.lineWidth = 0.5 / scale;
+  for (let x = 0; x <= GAME_WIDTH; x += 50) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, GAME_HEIGHT); ctx.stroke();
+  }
+  for (let y = 0; y <= GAME_HEIGHT; y += 50) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(GAME_WIDTH, y); ctx.stroke();
+  }
+
+  // Game area border
+  ctx.strokeStyle = 'rgba(60, 70, 84, 0.6)';
+  ctx.lineWidth = 1 / scale;
+  ctx.strokeRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+  const level = LEVELS[currentLevel];
+  const pts = segmentsToPoints(level.segments, level.shooterPos.x, level.shooterPos.y);
+
+  // Draw path track
+  if (pts.length > 1) {
+    const onScreen = pts.filter(p => p.x <= GAME_WIDTH + 10);
+    if (onScreen.length > 1) {
+      ctx.beginPath();
+      ctx.moveTo(onScreen[0].x, onScreen[0].y);
+      for (let i = 1; i < onScreen.length; i++) ctx.lineTo(onScreen[i].x, onScreen[i].y);
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.strokeStyle = 'rgba(18, 22, 28, 0.25)'; ctx.lineWidth = 30; ctx.stroke();
+      ctx.strokeStyle = 'rgba(111, 121, 130, 0.7)'; ctx.lineWidth = 20; ctx.stroke();
+      ctx.strokeStyle = 'rgba(60, 70, 78, 0.35)'; ctx.lineWidth = 8; ctx.stroke();
+    }
+  }
+
+  // Draw each segment's editable elements
+  for (let i = 0; i < level.segments.length; i++) {
+    const seg = level.segments[i];
+    const isSel = i === selectedSeg;
+    const col = isSel ? '#f0d57a' : '#5a6a7a';
+
+    if (seg.type === 'line') {
+      drawHandle(seg.x1, seg.y1, col, `seg${i}.x1`);
+      drawHandle(seg.x2, seg.y2, col, `seg${i}.x2`);
+      if (isSel) {
+        ctx.setLineDash([6/scale, 4/scale]);
+        ctx.strokeStyle = 'rgba(240, 213, 122, 0.3)';
+        ctx.lineWidth = 1 / scale;
+        ctx.beginPath(); ctx.moveTo(seg.x1, seg.y1); ctx.lineTo(seg.x2, seg.y2); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    } else if (seg.type === 'arc') {
+      drawHandle(seg.cx, seg.cy, col, `seg${i}.cx`);
+      // Draw radius line
+      if (isSel) {
+        ctx.setLineDash([4/scale, 3/scale]);
+        ctx.strokeStyle = 'rgba(240, 213, 122, 0.2)';
+        ctx.lineWidth = 1 / scale;
+        ctx.beginPath(); ctx.moveTo(seg.cx, seg.cy);
+        ctx.lineTo(seg.cx + Math.cos(seg.startAngle) * seg.radius, seg.cy + Math.sin(seg.startAngle) * seg.radius);
+        ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(seg.cx, seg.cy);
+        ctx.lineTo(seg.cx + Math.cos(seg.endAngle) * seg.radius, seg.cy + Math.sin(seg.endAngle) * seg.radius);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      // Start angle handle
+      const sx = seg.cx + Math.cos(seg.startAngle) * seg.radius;
+      const sy = seg.cy + Math.sin(seg.startAngle) * seg.radius;
+      drawHandle(sx, sy, '#6cc870', `seg${i}.startAngle`);
+      // End angle handle
+      const ex = seg.cx + Math.cos(seg.endAngle) * seg.radius;
+      const ey = seg.cy + Math.sin(seg.endAngle) * seg.radius;
+      drawHandle(ex, ey, '#d45040', `seg${i}.endAngle`);
+      // Radius handle (on right)
+      const rx = seg.cx + seg.radius;
+      drawHandle(rx, seg.cy, '#4f84df', `seg${i}.radius`);
+      // Rotation handle (purple diamond) — at center + offset along midpoint angle
+      if (isSel) {
+        const midA = (seg.startAngle + seg.endAngle) / 2;
+        const rotR = seg.radius + 28;
+        const rotX = seg.cx + Math.cos(midA) * rotR;
+        const rotY = seg.cy + Math.sin(midA) * rotR;
+        drawDiamondHandle(rotX, rotY, '#b060e0', `seg${i}.rotation`);
+      }
+    } else if (seg.type === 'circle') {
+      drawHandle(seg.cx, seg.cy, col, `seg${i}.cx`);
+      if (isSel) {
+        ctx.setLineDash([4/scale, 3/scale]);
+        ctx.strokeStyle = 'rgba(240, 213, 122, 0.2)';
+        ctx.lineWidth = 1 / scale;
+        ctx.beginPath(); ctx.moveTo(seg.cx, seg.cy);
+        ctx.lineTo(seg.cx + Math.cos(seg.startAngle) * seg.radius, seg.cy + Math.sin(seg.startAngle) * seg.radius);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      const sx = seg.cx + Math.cos(seg.startAngle) * seg.radius;
+      const sy = seg.cy + Math.sin(seg.startAngle) * seg.radius;
+      drawHandle(sx, sy, '#6cc870', `seg${i}.startAngle`);
+      const rx = seg.cx + seg.radius;
+      drawHandle(rx, seg.cy, '#4f84df', `seg${i}.radius`);
+      // Rotation handle (purple diamond)
+      if (isSel) {
+        const rotR = seg.radius + 28;
+        const rotX = seg.cx + Math.cos(seg.startAngle) * rotR;
+        const rotY = seg.cy + Math.sin(seg.startAngle) * rotR;
+        drawDiamondHandle(rotX, rotY, '#b060e0', `seg${i}.rotation`);
+      }
+    }
+  }
+
+  // Start / end points
+  if (pts.length > 0) {
+    const first = pts.find(p => p.x <= GAME_WIDTH + 10);
+    if (first) {
+      ctx.beginPath(); ctx.arc(first.x, first.y, 8, 0, TAU);
+      ctx.fillStyle = 'rgba(108, 200, 112, 0.3)'; ctx.fill();
+      ctx.beginPath(); ctx.arc(first.x, first.y, 4, 0, TAU);
+      ctx.fillStyle = '#6cc870'; ctx.fill();
+    }
+    const last = pts[pts.length - 1];
+    ctx.beginPath(); ctx.arc(last.x, last.y, 8, 0, TAU);
+    ctx.fillStyle = 'rgba(212, 80, 64, 0.3)'; ctx.fill();
+    ctx.beginPath(); ctx.arc(last.x, last.y, 4, 0, TAU);
+    ctx.fillStyle = '#d45040'; ctx.fill();
+  }
+
+  // Shooter
+  const sh = level.shooterPos;
+  ctx.beginPath(); ctx.arc(sh.x, sh.y, 30, 0, TAU);
+  ctx.fillStyle = 'rgba(233, 192, 98, 0.12)'; ctx.fill();
+  ctx.strokeStyle = 'rgba(233, 192, 98, 0.4)'; ctx.lineWidth = 2/scale; ctx.stroke();
+  ctx.beginPath(); ctx.arc(sh.x, sh.y, 6, 0, TAU);
+  ctx.fillStyle = '#f0d57a'; ctx.fill();
+  drawHandle(sh.x, sh.y, '#f0d57a', 'shooter');
+
+  // Info
+  let pathLen = 0;
+  for (let i = 1; i < pts.length; i++) pathLen += Math.hypot(pts[i].x-pts[i-1].x, pts[i].y-pts[i-1].y);
+  ctx.fillStyle = 'rgba(138, 154, 170, 0.7)';
+  ctx.font = `${12/scale}px -apple-system, sans-serif`;
+  ctx.fillText(`路径长度: ${Math.round(pathLen)}px`, 12, GAME_HEIGHT - 12);
+
+  ctx.restore();
+}
+
+function drawHandle(x, y, color, id) {
+  const r = 6 / scale;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, TAU);
+  ctx.fillStyle = color; ctx.globalAlpha = 0.5; ctx.fill(); ctx.globalAlpha = 1;
+  ctx.strokeStyle = color; ctx.lineWidth = 1.5/scale; ctx.stroke();
+}
+
+function drawDiamondHandle(x, y, color, id) {
+  const s = 7 / scale;
+  ctx.beginPath();
+  ctx.moveTo(x, y - s);
+  ctx.lineTo(x + s, y);
+  ctx.lineTo(x, y + s);
+  ctx.lineTo(x - s, y);
+  ctx.closePath();
+  ctx.fillStyle = color; ctx.globalAlpha = 0.5; ctx.fill(); ctx.globalAlpha = 1;
+  ctx.strokeStyle = color; ctx.lineWidth = 1.5/scale; ctx.stroke();
+}
+
+// ─── Canvas interaction ─────────────────────────────────────────────
+function screenToGame(sx, sy) {
+  return {
+    x: (sx - panX) / scale,
+    y: (sy - panY) / scale,
+  };
+}
+
+function findHandle(gx, gy) {
+  const level = LEVELS[currentLevel];
+  const threshold = 12 / scale;
+
+  // Check shooter
+  if (Math.hypot(gx - level.shooterPos.x, gy - level.shooterPos.y) < threshold) {
+    return { type: 'shooter' };
+  }
+
+  // Check segment handles
+  for (let i = level.segments.length - 1; i >= 0; i--) {
+    const seg = level.segments[i];
+    if (seg.type === 'line') {
+      if (Math.hypot(gx - seg.x1, gy - seg.y1) < threshold) return { type: 'seg', index: i, key: 'x1' };
+      if (Math.hypot(gx - seg.x2, gy - seg.y2) < threshold) return { type: 'seg', index: i, key: 'x2' };
+    } else if (seg.type === 'arc') {
+      // Rotation handle (check first — higher priority)
+      const midA = (seg.startAngle + seg.endAngle) / 2;
+      const rotR = seg.radius + 28;
+      const rotX = seg.cx + Math.cos(midA) * rotR;
+      const rotY = seg.cy + Math.sin(midA) * rotR;
+      if (Math.hypot(gx - rotX, gy - rotY) < threshold) return { type: 'seg', index: i, key: 'rotation' };
+      if (Math.hypot(gx - seg.cx, gy - seg.cy) < threshold) return { type: 'seg', index: i, key: 'cx' };
+      // Angle handles
+      const sx2 = seg.cx + Math.cos(seg.startAngle) * seg.radius;
+      const sy2 = seg.cy + Math.sin(seg.startAngle) * seg.radius;
+      if (Math.hypot(gx - sx2, gy - sy2) < threshold) return { type: 'seg', index: i, key: 'startAngle' };
+      const ex = seg.cx + Math.cos(seg.endAngle) * seg.radius;
+      const ey = seg.cy + Math.sin(seg.endAngle) * seg.radius;
+      if (Math.hypot(gx - ex, gy - ey) < threshold) return { type: 'seg', index: i, key: 'endAngle' };
+      // Radius handle
+      const rx = seg.cx + seg.radius;
+      if (Math.hypot(gx - rx, gy - seg.cy) < threshold) return { type: 'seg', index: i, key: 'radius' };
+    } else if (seg.type === 'circle') {
+      // Rotation handle (check first)
+      const rotR = seg.radius + 28;
+      const rotX = seg.cx + Math.cos(seg.startAngle) * rotR;
+      const rotY = seg.cy + Math.sin(seg.startAngle) * rotR;
+      if (Math.hypot(gx - rotX, gy - rotY) < threshold) return { type: 'seg', index: i, key: 'rotation' };
+      if (Math.hypot(gx - seg.cx, gy - seg.cy) < threshold) return { type: 'seg', index: i, key: 'cx' };
+      const sx2 = seg.cx + Math.cos(seg.startAngle) * seg.radius;
+      const sy2 = seg.cy + Math.sin(seg.startAngle) * seg.radius;
+      if (Math.hypot(gx - sx2, gy - sy2) < threshold) return { type: 'seg', index: i, key: 'startAngle' };
+      const rx = seg.cx + seg.radius;
+      if (Math.hypot(gx - rx, gy - seg.cy) < threshold) return { type: 'seg', index: i, key: 'radius' };
+    }
+  }
+  return null;
+}
+
+cv.addEventListener('mousedown', e => {
+  if (e.button === 1) { // middle click -> pan
+    dragging = 'pan';
+    dragStart = { x: e.offsetX, y: e.offsetY, panX, panY };
+    e.preventDefault();
+    return;
+  }
+  const g = screenToGame(e.offsetX, e.offsetY);
+  const handle = findHandle(g.x, g.y);
+  if (handle) {
+    dragging = handle;
+    if (handle.type === 'seg') selectedSeg = handle.index;
+    // Initialize incremental angle tracking
+    if (handle.key === 'startAngle' || handle.key === 'endAngle' || handle.key === 'rotation') {
+      const seg = LEVELS[currentLevel].segments[handle.index];
+      lastDragAngle = Math.atan2(g.y - seg.cy, g.x - seg.cx);
+    } else {
+      lastDragAngle = null;
+    }
+  } else {
+    selectedSeg = -1;
+  }
+  buildSegList();
+  render();
+});
+
+cv.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  const g = screenToGame(e.offsetX, e.offsetY);
+
+  if (dragging === 'pan') {
+    panX = dragStart.panX + (e.offsetX - dragStart.x);
+    panY = dragStart.panY + (e.offsetY - dragStart.y);
+    render();
+    return;
+  }
+
+  if (dragging.type === 'shooter') {
+    const level = LEVELS[currentLevel];
+    level.shooterPos.x = Math.round(Math.max(0, Math.min(GAME_WIDTH, g.x)));
+    level.shooterPos.y = Math.round(Math.max(0, Math.min(GAME_HEIGHT, g.y)));
+    document.getElementById('shX').value = level.shooterPos.x;
+    document.getElementById('shY').value = level.shooterPos.y;
+  } else if (dragging.type === 'seg') {
+    const seg = LEVELS[currentLevel].segments[dragging.index];
+    const key = dragging.key;
+    if (key === 'x1') { seg.x1 = Math.round(g.x); seg.y1 = Math.round(g.y); }
+    else if (key === 'x2') { seg.x2 = Math.round(g.x); seg.y2 = Math.round(g.y); }
+    else if (key === 'cx') { seg.cx = Math.round(g.x); seg.cy = Math.round(g.y); }
+    else if (key === 'radius') { seg.radius = Math.max(10, Math.round(Math.hypot(g.x - seg.cx, g.y - seg.cy))); }
+    else if (key === 'startAngle' || key === 'endAngle') {
+      const newAngle = Math.atan2(g.y - seg.cy, g.x - seg.cx);
+      if (lastDragAngle !== null) {
+        let delta = newAngle - lastDragAngle;
+        while (delta > Math.PI) delta -= TAU;
+        while (delta < -Math.PI) delta += TAU;
+        seg[key] += delta;
+      }
+      lastDragAngle = newAngle;
+    }
+    else if (key === 'rotation') {
+      const newAngle = Math.atan2(g.y - seg.cy, g.x - seg.cx);
+      if (lastDragAngle !== null) {
+        let delta = newAngle - lastDragAngle;
+        while (delta > Math.PI) delta -= TAU;
+        while (delta < -Math.PI) delta += TAU;
+        // Rotate both angles together
+        seg.startAngle += delta;
+        seg.endAngle += delta;
+      }
+      lastDragAngle = newAngle;
+    }
+    buildSegList();
+  }
+  render();
+});
+
+cv.addEventListener('mouseup', () => { dragging = null; });
+cv.addEventListener('mouseleave', () => { dragging = null; });
+
+cv.addEventListener('wheel', e => {
+  const factor = e.deltaY > 0 ? 0.9 : 1.1;
+  const mx = e.offsetX, my = e.offsetY;
+  panX = mx - (mx - panX) * factor;
+  panY = my - (my - panY) * factor;
+  scale *= factor;
+  scale = Math.max(0.2, Math.min(2, scale));
+  render();
+  e.preventDefault();
+}, { passive: false });
+
+// ─── Segment list UI ────────────────────────────────────────────────
+const segListEl = document.getElementById('seg-list');
+
+window.addSegment = function(type) {
+  const level = LEVELS[currentLevel];
+  let seg;
+  if (type === 'line') {
+    const lastPt = getLastEndPoint(level.segments);
+    seg = { type:'line', x1: Math.round(lastPt.x), y1: Math.round(lastPt.y), x2: Math.round(lastPt.x), y2: Math.round(lastPt.y - 120) };
+  } else if (type === 'arc') {
+    const lastPt = getLastEndPoint(level.segments);
+    const r = 100;
+    const startA = -Math.PI * 0.5; // start pointing up
+    // Place center so that arc start point = lastPt
+    const cx = Math.round(lastPt.x - Math.cos(startA) * r);
+    const cy = Math.round(lastPt.y - Math.sin(startA) * r);
+    seg = { type:'arc', cx, cy, radius: r, startAngle: startA, endAngle: startA + Math.PI * 0.5 };
+  } else if (type === 'circle') {
+    const lastPt = getLastEndPoint(level.segments);
+    const r = 100;
+    const startA = -Math.PI * 0.5;
+    const cx = Math.round(lastPt.x - Math.cos(startA) * r);
+    const cy = Math.round(lastPt.y - Math.sin(startA) * r);
+    seg = { type:'circle', cx, cy, radius: r, startAngle: startA, turns: 1.5 };
+  }
+  level.segments.push(seg);
+  selectedSeg = level.segments.length - 1;
+  buildSegList();
+  render();
+};
+
+function getLastEndPoint(segments) {
+  if (segments.length === 0) return { x: GAME_WIDTH * 0.5, y: 120 };
+  const pts = segmentsToPoints(segments, 0, 0);
+  // Filter out off-screen entry
+  const onScreen = pts.filter(p => p.x <= GAME_WIDTH + 10);
+  return onScreen.length > 0 ? onScreen[onScreen.length - 1] : { x: GAME_WIDTH * 0.5, y: 120 };
+}
+
+window.deleteSegment = function() {
+  if (selectedSeg < 0) return;
+  LEVELS[currentLevel].segments.splice(selectedSeg, 1);
+  selectedSeg = Math.min(selectedSeg, LEVELS[currentLevel].segments.length - 1);
+  buildSegList();
+  render();
+};
+
+window.flipSegment = function(axis) {
+  if (selectedSeg < 0) return;
+  const seg = LEVELS[currentLevel].segments[selectedSeg];
+
+  if (seg.type === 'line') {
+    if (axis === 'h') {
+      const midY = (seg.y1 + seg.y2) / 2;
+      seg.y1 = 2 * midY - seg.y1;
+      seg.y2 = 2 * midY - seg.y2;
+    } else {
+      const midX = (seg.x1 + seg.x2) / 2;
+      seg.x1 = 2 * midX - seg.x1;
+      seg.x2 = 2 * midX - seg.x2;
+    }
+  } else if (seg.type === 'arc') {
+    // Flip around the arc's START POINT so no gap is created
+    const startX = seg.cx + Math.cos(seg.startAngle) * seg.radius;
+    const startY = seg.cy + Math.sin(seg.startAngle) * seg.radius;
+    const span = seg.endAngle - seg.startAngle;
+
+    if (axis === 'h') {
+      // Mirror center across horizontal line through start point
+      seg.cy = 2 * startY - seg.cy;
+    } else {
+      // Mirror center across vertical line through start point
+      seg.cx = 2 * startX - seg.cx;
+    }
+    // Recalculate startAngle from new center to start point
+    seg.startAngle = Math.atan2(startY - seg.cy, startX - seg.cx);
+    // Reverse the span direction
+    seg.endAngle = seg.startAngle - span;
+  } else if (seg.type === 'circle') {
+    const startX = seg.cx + Math.cos(seg.startAngle) * seg.radius;
+    const startY = seg.cy + Math.sin(seg.startAngle) * seg.radius;
+
+    if (axis === 'h') {
+      seg.cy = 2 * startY - seg.cy;
+    } else {
+      seg.cx = 2 * startX - seg.cx;
+    }
+    seg.startAngle = Math.atan2(startY - seg.cy, startX - seg.cx);
+    seg.turns = -seg.turns;
+  }
+
+  buildSegList();
+  render();
+};
+
+window.moveSegment = function(dir) {
+  if (selectedSeg < 0) return;
+  const segs = LEVELS[currentLevel].segments;
+  const newIdx = selectedSeg + dir;
+  if (newIdx < 0 || newIdx >= segs.length) return;
+  [segs[selectedSeg], segs[newIdx]] = [segs[newIdx], segs[selectedSeg]];
+  selectedSeg = newIdx;
+  buildSegList();
+  render();
+};
+
+function buildSegList() {
+  const level = LEVELS[currentLevel];
+  segListEl.innerHTML = '';
+  level.segments.forEach((seg, i) => {
+    const card = document.createElement('div');
+    card.className = 'seg-card' + (i === selectedSeg ? ' selected' : '');
+    card.onclick = () => { selectedSeg = i; buildSegList(); render(); };
+
+    const head = document.createElement('div');
+    head.className = 'seg-head';
+    const typeLabel = document.createElement('span');
+    typeLabel.className = 'seg-type';
+    typeLabel.textContent = seg.type === 'line' ? `线段 #${i+1}` : seg.type === 'arc' ? `弧线 #${i+1}` : `圆弧 #${i+1}`;
+    const del = document.createElement('span');
+    del.className = 'seg-del';
+    del.textContent = '✕';
+    del.onclick = (e) => { e.stopPropagation(); selectedSeg = i; deleteSegment(); };
+    head.appendChild(typeLabel);
+    head.appendChild(del);
+
+    const params = document.createElement('div');
+    params.className = 'seg-params';
+
+    if (seg.type === 'line') {
+      params.appendChild(makeRow('X1', seg, 'x1', i));
+      params.appendChild(makeRow('Y1', seg, 'y1', i));
+      params.appendChild(makeRow('X2', seg, 'x2', i));
+      params.appendChild(makeRow('Y2', seg, 'y2', i));
+    } else if (seg.type === 'arc') {
+      params.appendChild(makeRow('中心X', seg, 'cx', i));
+      params.appendChild(makeRow('中心Y', seg, 'cy', i));
+      params.appendChild(makeRow('半径', seg, 'radius', i));
+      params.appendChild(makeRow('起始角', seg, 'startAngle', i, true));
+      params.appendChild(makeRow('弧度', seg, 'endAngle', i, 'arcSpan'));
+      // Quick angle buttons
+      const quickRow = document.createElement('div');
+      quickRow.className = 'p-row';
+      quickRow.style.gap = '3px';
+      quickRow.style.marginTop = '2px';
+      [0.5, 1, 1.5, 2].forEach(piVal => {
+        const qb = document.createElement('button');
+        qb.className = 'tool-btn';
+        qb.style.cssText = 'padding:2px 6px;font-size:10px;';
+        qb.textContent = `${piVal}π`;
+        qb.onclick = (e) => {
+          e.stopPropagation();
+          seg.endAngle = seg.startAngle + Math.PI * piVal;
+          buildSegList(); render();
+        };
+        quickRow.appendChild(qb);
+      });
+      const revBtnH = document.createElement('button');
+      revBtnH.className = 'tool-btn';
+      revBtnH.style.cssText = 'padding:2px 6px;font-size:10px;color:#b060e0;';
+      revBtnH.textContent = '↔';
+      revBtnH.onclick = (e) => {
+        e.stopPropagation();
+        flipSegment('h');
+      };
+      const revBtnV = document.createElement('button');
+      revBtnV.className = 'tool-btn';
+      revBtnV.style.cssText = 'padding:2px 6px;font-size:10px;color:#b060e0;';
+      revBtnV.textContent = '↕';
+      revBtnV.onclick = (e) => {
+        e.stopPropagation();
+        flipSegment('v');
+      };
+      quickRow.appendChild(revBtnH);
+      quickRow.appendChild(revBtnV);
+      params.appendChild(quickRow);
+    } else if (seg.type === 'circle') {
+      params.appendChild(makeRow('中心X', seg, 'cx', i));
+      params.appendChild(makeRow('中心Y', seg, 'cy', i));
+      params.appendChild(makeRow('半径', seg, 'radius', i));
+      params.appendChild(makeRow('起始角', seg, 'startAngle', i, true));
+      params.appendChild(makeRow('圈数', seg, 'turns', i));
+    }
+
+    card.appendChild(head);
+    card.appendChild(params);
+    segListEl.appendChild(card);
+  });
+}
+
+function makeRow(label, seg, key, segIdx, isAngle = false) {
+  const row = document.createElement('div');
+  row.className = 'p-row';
+  const lbl = document.createElement('label');
+  lbl.textContent = label;
+  const inp = document.createElement('input');
+  inp.type = 'number';
+  inp.step = isAngle ? 0.1 : 1;
+
+  // arcSpan mode: show/edit arc span (endAngle - startAngle) in units of π
+  const isArcSpan = isAngle === 'arcSpan';
+  if (isArcSpan) {
+    inp.value = ((seg.endAngle - seg.startAngle) / Math.PI).toFixed(2);
+  } else if (isAngle) {
+    inp.value = (seg[key] / Math.PI).toFixed(2);
+  } else {
+    inp.value = Math.round(seg[key]);
+  }
+
+  const unit = document.createElement('span');
+  unit.className = 'unit';
+  unit.textContent = (isAngle || isArcSpan) ? 'π' : '';
+
+  inp.oninput = () => {
+    const val = Number(inp.value);
+    if (isArcSpan) {
+      seg.endAngle = seg.startAngle + val * Math.PI;
+    } else if (isAngle) {
+      seg[key] = val * Math.PI;
+    } else {
+      seg[key] = val;
+    }
+    render();
+  };
+
+  row.appendChild(lbl);
+  row.appendChild(inp);
+  row.appendChild(unit);
+  return row;
+}
+
+// ─── Level tabs ─────────────────────────────────────────────────────
+const tabsEl = document.getElementById('levelTabs');
+LEVELS.forEach((lv, i) => {
+  const btn = document.createElement('button');
+  btn.className = 'lv-tab' + (i === 0 ? ' active' : '');
+  btn.textContent = i + 1;
+  btn.onclick = () => {
+    currentLevel = i;
+    selectedSeg = -1;
+    document.querySelectorAll('.lv-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const sh = LEVELS[currentLevel].shooterPos;
+    document.getElementById('shX').value = sh.x;
+    document.getElementById('shY').value = sh.y;
+    buildSegList();
+    render();
+  };
+  tabsEl.appendChild(btn);
+});
+
+window.updateShooter = function() {
+  const level = LEVELS[currentLevel];
+  level.shooterPos.x = Number(document.getElementById('shX').value);
+  level.shooterPos.y = Number(document.getElementById('shY').value);
+  render();
+};
+
+// ─── Export ─────────────────────────────────────────────────────────
+window.exportLevel = function() {
+  const level = LEVELS[currentLevel];
+  const code = generateSegCode(level.segments);
+  const text = `// 第${currentLevel+1}关 路径段定义
+// 复制到 path.js 的 generateDrawnPath 中使用
+const segments = ${JSON.stringify(level.segments, null, 2)};
+// 射手位置: { x: ${level.shooterPos.x}, y: ${level.shooterPos.y} }`;
+
+  // Copy to clipboard
+  navigator.clipboard.writeText(JSON.stringify(level.segments, null, 2)).then(() => {
+    alert('已复制段定义 JSON 到剪贴板！');
+  });
+};
+
+window.exportAll = function() {
+  const allCode = [];
+  LEVELS.forEach((lv, i) => {
+    allCode.push(`  // 第${i+1}关: ${lv.name}`);
+    allCode.push(`  segments: ${JSON.stringify(lv.segments)},`);
+    allCode.push(`  shooterPos: { x: ${lv.shooterPos.x}, y: ${lv.shooterPos.y} },`);
+  });
+
+  // Download as file
+  const code = `// ZUMA 路径配置 — 由绘图编辑器导出
+// 路径段类型: line{x1,y1,x2,y2}, arc{cx,cy,radius,startAngle,endAngle}, circle{cx,cy,radius,startAngle,turns}
+
+export const DRAWN_LEVELS = [
+${LEVELS.map((lv, i) => `  {
+    name: "${lv.name}",
+    segments: ${JSON.stringify(lv.segments)},
+    shooterPos: { x: ${lv.shooterPos.x}, y: ${lv.shooterPos.y} },
+  }`).join(',\n')}
+];
+`;
+
+  const blob = new Blob([code], {type:'text/javascript'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'drawn-paths.js'; a.click();
+  URL.revokeObjectURL(url);
+};
+
+function generateSegCode(segments) {
+  return JSON.stringify(segments, null, 2);
+}
+
+// ─── Canvas setup ───────────────────────────────────────────────────
+function resizeCanvas() {
+  const wrap = document.getElementById('canvas-wrap');
+  cv.width = wrap.clientWidth - 40;
+  cv.height = wrap.clientHeight - 40;
+  render();
+}
+
+window.addEventListener('resize', resizeCanvas);
+
+// Init
+document.getElementById('shX').value = LEVELS[0].shooterPos.x;
+document.getElementById('shY').value = LEVELS[0].shooterPos.y;
+buildSegList();
+resizeCanvas();
+</script>
+</body>
+</html>

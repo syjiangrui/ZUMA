@@ -1829,6 +1829,19 @@ function drawPathThumbnail(ctx, level, rect) {
     ctx.lineTo(cx + thumbW * 0.4, thumbY - thumbH * 0.35 + inset);
     ctx.lineTo(cx - thumbW * 0.4 + inset, thumbY - thumbH * 0.35 + inset);
     ctx.stroke();
+  } else if (pathType === "openArc") {
+    ctx.beginPath();
+    for (let i = 0; i <= 60; i++) {
+      const t = i / 60;
+      const angle = -0.2 * Math.PI + t * Math.PI * 1.45;
+      const rx = 24 - t * 10;
+      const ry = 20 - t * 6;
+      const x = cx + Math.cos(angle) * rx;
+      const y = thumbY + Math.sin(angle) * ry;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
   } else if (pathType === "zigzag") {
     ctx.beginPath();
     const rows = 5;
@@ -1842,6 +1855,69 @@ function drawPathThumbnail(ctx, level, rect) {
       ctx.lineTo(toX, y);
     }
     ctx.stroke();
+  } else if (pathType === "drawn") {
+    // Drawn path thumbnail — render actual segments scaled to thumbnail
+    const segs = level.pathParams?.segments;
+    if (segs && segs.length > 0) {
+      // Find bounding box
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      const TAU2 = Math.PI * 2;
+      for (const seg of segs) {
+        if (seg.type === "line") {
+          minX = Math.min(minX, seg.x1, seg.x2); maxX = Math.max(maxX, seg.x1, seg.x2);
+          minY = Math.min(minY, seg.y1, seg.y2); maxY = Math.max(maxY, seg.y1, seg.y2);
+        } else if (seg.type === "arc") {
+          for (let i = 0; i <= 20; i++) {
+            const t = i / 20;
+            const a = seg.startAngle + (seg.endAngle - seg.startAngle) * t;
+            const px = seg.cx + Math.cos(a) * seg.radius;
+            const py = seg.cy + Math.sin(a) * seg.radius;
+            minX = Math.min(minX, px); maxX = Math.max(maxX, px);
+            minY = Math.min(minY, py); maxY = Math.max(maxY, py);
+          }
+        } else if (seg.type === "circle") {
+          for (let i = 0; i <= 20; i++) {
+            const t = i / 20;
+            const a = seg.startAngle + seg.turns * TAU2 * t;
+            const px = seg.cx + Math.cos(a) * seg.radius;
+            const py = seg.cy + Math.sin(a) * seg.radius;
+            minX = Math.min(minX, px); maxX = Math.max(maxX, px);
+            minY = Math.min(minY, py); maxY = Math.max(maxY, py);
+          }
+        }
+      }
+      const bw = maxX - minX || 1;
+      const bh = maxY - minY || 1;
+      const scaleX = (thumbW * 0.8) / bw;
+      const scaleY = (thumbH * 0.7) / bh;
+      const sc = Math.min(scaleX, scaleY);
+      const offX = cx - (minX + bw / 2) * sc;
+      const offY = thumbY - (minY + bh / 2) * sc;
+      ctx.beginPath();
+      for (const seg of segs) {
+        if (seg.type === "line") {
+          ctx.moveTo(seg.x1 * sc + offX, seg.y1 * sc + offY);
+          ctx.lineTo(seg.x2 * sc + offX, seg.y2 * sc + offY);
+        } else if (seg.type === "arc") {
+          for (let i = 0; i <= 20; i++) {
+            const t = i / 20;
+            const a = seg.startAngle + (seg.endAngle - seg.startAngle) * t;
+            const px = (seg.cx + Math.cos(a) * seg.radius) * sc + offX;
+            const py = (seg.cy + Math.sin(a) * seg.radius) * sc + offY;
+            if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+          }
+        } else if (seg.type === "circle") {
+          for (let i = 0; i <= 20; i++) {
+            const t = i / 20;
+            const a = seg.startAngle + seg.turns * TAU2 * t;
+            const px = (seg.cx + Math.cos(a) * seg.radius) * sc + offX;
+            const py = (seg.cy + Math.sin(a) * seg.radius) * sc + offY;
+            if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+          }
+        }
+      }
+      ctx.stroke();
+    }
   }
 
   ctx.restore();
