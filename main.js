@@ -689,16 +689,17 @@ class ZumaGame {
       return null;
     }
     if (this.gameState === "win" && this.currentLevel < LEVELS.length) {
+      // Win with more levels: "重玩本关" sits left of "下一关"
       return {
-        x: GAME_WIDTH * 0.5 - 70,
-        y: GAME_HEIGHT * 0.1 + 148,
+        x: GAME_WIDTH * 0.5 - 156,
+        y: GAME_HEIGHT * 0.18 + 248,
         w: 140,
-        h: 34,
+        h: 38,
       };
     }
     return {
       x: GAME_WIDTH * 0.5 - 100,
-      y: GAME_HEIGHT * 0.1 + 192,
+      y: GAME_HEIGHT * 0.18 + 248,
       w: 200,
       h: 40,
     };
@@ -730,18 +731,18 @@ class ZumaGame {
       return null;
     }
     return {
-      x: GAME_WIDTH * 0.5 - 100,
-      y: GAME_HEIGHT * 0.1 + 192,
-      w: 200,
-      h: 40,
+      x: GAME_WIDTH * 0.5 + 16,
+      y: GAME_HEIGHT * 0.18 + 248,
+      w: 140,
+      h: 38,
     };
   }
 
   getEndCardBackButtonRect() {
-    const baseY = GAME_HEIGHT * 0.1 + 192;
+    const baseY = GAME_HEIGHT * 0.18 + 248;
     return {
       x: GAME_WIDTH * 0.5 - 100,
-      y: baseY + 50,
+      y: baseY + 52,
       w: 200,
       h: 36,
     };

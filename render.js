@@ -1251,10 +1251,10 @@ function drawRoundStateCard(game, ctx) {
   ctx.fillStyle = "rgba(6, 10, 12, 0.52)";
   ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-  const panelWidth = 300;
-  const panelHeight = 240;
+  const panelWidth = 320;
+  const panelHeight = 370;
   const panelX = (GAME_WIDTH - panelWidth) / 2;
-  const panelY = GAME_HEIGHT * 0.1;
+  const panelY = GAME_HEIGHT * 0.18;
   const midX = GAME_WIDTH / 2;
 
   // Main panel with win-gold or lose-red border
