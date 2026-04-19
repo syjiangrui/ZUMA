@@ -95,6 +95,7 @@ class ZumaGame {
     // moment to "land" before the chain resumes full conveyor speed.
     this.mergeSettle = null;
     this.chainIntro = null;
+    this.fadeOverlay = null; // { alpha, direction: "in"|"out", callback }
     // Level management — added in Phase 4.
     this.levelProgress = loadProgress();
     this.currentLevel = 1;
@@ -106,6 +107,32 @@ class ZumaGame {
     this.bindEvents();
     this.resize();
     requestAnimationFrame((time) => this.loop(time));
+  }
+
+  // --- Fade transition helpers --------------------------------------------
+
+  startFade(direction, callback) {
+    this.fadeOverlay = { alpha: direction === "out" ? 0 : 1, direction, callback };
+  }
+
+  updateFade(dt) {
+    if (!this.fadeOverlay) {
+      return;
+    }
+    const speed = 3.0; // ~0.33s fade
+    if (this.fadeOverlay.direction === "out") {
+      this.fadeOverlay.alpha = Math.min(1, this.fadeOverlay.alpha + speed * dt);
+      if (this.fadeOverlay.alpha >= 1) {
+        const cb = this.fadeOverlay.callback;
+        this.fadeOverlay = null;
+        if (cb) cb();
+      }
+    } else {
+      this.fadeOverlay.alpha = Math.max(0, this.fadeOverlay.alpha - speed * dt);
+      if (this.fadeOverlay.alpha <= 0) {
+        this.fadeOverlay = null;
+      }
+    }
   }
 
   // --- Path delegation wrappers -------------------------------------------
@@ -283,6 +310,7 @@ class ZumaGame {
   }
 
   update(dt) {
+    this.updateFade(dt);
     if (this.gameState === "levelSelect") {
       return;
     }
@@ -429,21 +457,27 @@ class ZumaGame {
     if (!cfg) {
       return;
     }
-    this.currentLevel = levelId;
-    this.levelConfig = cfg;
-    this.resetRound();
+    this.startFade("out", () => {
+      this.currentLevel = levelId;
+      this.levelConfig = cfg;
+      this.resetRound();
+      this.startFade("in", null);
+    });
   }
 
   // Enter the level-select screen. Clears gameplay state.
   goToLevelSelect() {
-    this.gameState = "levelSelect";
-    this.projectile = null;
-    this.chain = [];
-    this.particles = [];
-    this.splitState = null;
-    this.pendingMatchChecks = [];
-    this.pointer.active = false;
-    this.hudPanelCache = null;
+    this.startFade("out", () => {
+      this.gameState = "levelSelect";
+      this.projectile = null;
+      this.chain = [];
+      this.particles = [];
+      this.splitState = null;
+      this.pendingMatchChecks = [];
+      this.pointer.active = false;
+      this.hudPanelCache = null;
+      this.startFade("in", null);
+    });
   }
 
   // Called when the player wins a level.

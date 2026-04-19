@@ -1958,6 +1958,11 @@ export function render(game) {
 
   if (game.gameState === "levelSelect") {
     drawLevelSelectScreen(game, ctx);
+    // Fade overlay must be drawn even during level select for transitions
+    if (game.fadeOverlay && game.fadeOverlay.alpha > 0.01) {
+      ctx.fillStyle = `rgba(6, 10, 12, ${game.fadeOverlay.alpha})`;
+      ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    }
     return;
   }
 
@@ -1996,5 +2001,11 @@ export function render(game) {
   // All-clear overlay replaces the normal end card
   if (game.isAllClear()) {
     drawAllClearScreen(game, ctx);
+  }
+
+  // Fade overlay (level transitions) — drawn on top of everything
+  if (game.fadeOverlay && game.fadeOverlay.alpha > 0.01) {
+    ctx.fillStyle = `rgba(6, 10, 12, ${game.fadeOverlay.alpha})`;
+    ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
   }
 }
