@@ -467,8 +467,8 @@ class ZumaGame {
 
   // Enter the level-select screen. Clears gameplay state.
   goToLevelSelect() {
+    this.gameState = "levelSelect"; // Prevent game logic from running during fade
     this.startFade("out", () => {
-      this.gameState = "levelSelect";
       this.projectile = null;
       this.chain = [];
       this.particles = [];
