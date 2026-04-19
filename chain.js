@@ -258,10 +258,10 @@ function getSplitLocalOffset(game, index) {
   const seamDistance = game.splitState.index - 1 - index;
   const normalized =
     frontCount <= 1 ? 0 : seamDistance / (frontCount - 1);
-  // The whole front chain should release pressure a little when the rear
-  // segment is about to merge. Keep the largest pull at the seam, but never
-  // let the far front balls drop to zero influence, otherwise the recoil
-  // reads like a local glitch instead of a chain-wide pullback.
+  // Near-rigid pullback: the entire front segment should retreat almost
+  // uniformly so the chain reads as a single solid body being drawn back.
+  // A tiny falloff (MIN_RATIO ≈ 0.96) keeps the math physically plausible
+  // without producing visible inter-ball spacing changes.
   const falloff =
     SPLIT_FRONT_PULL_MIN_RATIO +
     (1 - SPLIT_FRONT_PULL_MIN_RATIO) *
