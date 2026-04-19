@@ -102,7 +102,7 @@ class ZumaGame {
     this.lastTime = 0;
 
     this.createTextures();
-    this.resetRound();
+    this.goToLevelSelect();
     this.bindEvents();
     this.resize();
     requestAnimationFrame((time) => this.loop(time));
@@ -283,6 +283,9 @@ class ZumaGame {
   }
 
   update(dt) {
+    if (this.gameState === "levelSelect") {
+      return;
+    }
     this.updateHudState(dt);
     this.updateParticles(dt);
     // Round-end animations tick even after gameplay stops
@@ -360,8 +363,10 @@ class ZumaGame {
       if (nextState === "win") {
         this.spawnVictoryParticles();
         this.sfx.playWin();
+        this.onLevelWin();
       } else if (nextState === "lose") {
         this.sfx.playLose();
+        this.onLevelLose();
       }
     }
   }
@@ -423,6 +428,28 @@ class ZumaGame {
     this.currentLevel = levelId;
     this.levelConfig = cfg;
     this.resetRound();
+  }
+
+  // Enter the level-select screen. Clears gameplay state.
+  goToLevelSelect() {
+    this.gameState = "levelSelect";
+    this.projectile = null;
+    this.chain = [];
+    this.particles = [];
+    this.splitState = null;
+    this.pendingMatchChecks = [];
+    this.pointer.active = false;
+    this.hudPanelCache = null;
+  }
+
+  // Called when the player wins a level.
+  onLevelWin() {
+    recordLevelClear(this.levelProgress, this.currentLevel, this.score);
+  }
+
+  // Called when the player loses a level.
+  onLevelLose() {
+    updateHighScore(this.levelProgress, this.currentLevel, this.score);
   }
 
   getRandomPaletteIndex() {
@@ -568,10 +595,17 @@ class ZumaGame {
   // HUD and modal buttons share the same source rects for drawing and hit
   // testing, which keeps mobile touch targets aligned with their visuals.
   getEndCardRestartButtonRect() {
-    if (this.gameState === "playing") {
+    if (this.gameState === "playing" || this.gameState === "levelSelect") {
       return null;
     }
-
+    if (this.gameState === "win" && this.currentLevel < LEVELS.length) {
+      return {
+        x: GAME_WIDTH * 0.5 - 70,
+        y: GAME_HEIGHT * 0.1 + 148,
+        w: 140,
+        h: 34,
+      };
+    }
     return {
       x: GAME_WIDTH * 0.5 - 100,
       y: GAME_HEIGHT * 0.1 + 192,
@@ -580,22 +614,93 @@ class ZumaGame {
     };
   }
 
+  getLevelButtonRect(levelId) {
+    const col = (levelId - 1) % 2;
+    const row = Math.floor((levelId - 1) / 2);
+    const gridX = 40;
+    const gridY = 180;
+    const btnW = 164;
+    const btnH = 120;
+    const gapX = 22;
+    const gapY = 18;
+    return {
+      x: gridX + col * (btnW + gapX),
+      y: gridY + row * (btnH + gapY),
+      w: btnW,
+      h: btnH,
+    };
+  }
+
+  getHudBackButtonRect() {
+    return { x: 16, y: GAME_HEIGHT - 54, w: 80, h: 36 };
+  }
+
+  getEndCardNextButtonRect() {
+    if (this.gameState !== "win" || this.currentLevel >= LEVELS.length) {
+      return null;
+    }
+    return {
+      x: GAME_WIDTH * 0.5 - 100,
+      y: GAME_HEIGHT * 0.1 + 192,
+      w: 200,
+      h: 40,
+    };
+  }
+
+  getEndCardBackButtonRect() {
+    const baseY = GAME_HEIGHT * 0.1 + 192;
+    return {
+      x: GAME_WIDTH * 0.5 - 100,
+      y: baseY + 50,
+      w: 200,
+      h: 36,
+    };
+  }
+
+  getResetProgressButtonRect() {
+    return { x: GAME_WIDTH * 0.5 - 60, y: GAME_HEIGHT - 60, w: 120, h: 32 };
+  }
+
   // Button hit testing must run before gameplay input so tapping UI on phone
   // does not accidentally start an aiming / firing gesture on the canvas.
   getUiActionAt(x, y) {
-    const endCardRestart = this.getEndCardRestartButtonRect();
-    if (this.isPointInsideRect(x, y, endCardRestart)) {
-      return "restart";
+    if (this.gameState === "levelSelect") {
+      for (const level of LEVELS) {
+        const rect = this.getLevelButtonRect(level.id);
+        if (this.isPointInsideRect(x, y, rect) && level.id <= this.levelProgress.unlockedLevel) {
+          return `selectLevel:${level.id}`;
+        }
+      }
+      if (this.isPointInsideRect(x, y, this.getResetProgressButtonRect())) {
+        return "resetProgress";
+      }
+      return null;
     }
 
+    if (this.gameState !== "playing") {
+      const nextBtn = this.getEndCardNextButtonRect();
+      if (this.isPointInsideRect(x, y, nextBtn)) {
+        return "nextLevel";
+      }
+      const endCardRestart = this.getEndCardRestartButtonRect();
+      if (this.isPointInsideRect(x, y, endCardRestart)) {
+        return "restart";
+      }
+      const backBtn = this.getEndCardBackButtonRect();
+      if (this.isPointInsideRect(x, y, backBtn)) {
+        return "backToSelect";
+      }
+    }
+
+    if (this.isPointInsideRect(x, y, this.getHudBackButtonRect())) {
+      return "backToSelect";
+    }
     if (this.isPointInsideRect(x, y, this.getHudRestartButtonRect())) {
       return "restart";
     }
-
     if (this.isPointInsideRect(x, y, this.getHudSoundButtonRect())) {
       return "toggleSound";
     }
-
     return null;
   }
 
@@ -606,6 +711,15 @@ class ZumaGame {
     } else if (action === "toggleSound") {
       this.sfx.unlock();
       this.sfx.toggleMute();
+    } else if (action === "backToSelect") {
+      this.goToLevelSelect();
+    } else if (action === "nextLevel") {
+      this.loadLevel(this.currentLevel + 1);
+    } else if (action === "resetProgress") {
+      this.levelProgress = resetProgress();
+    } else if (action.startsWith("selectLevel:")) {
+      const levelId = parseInt(action.split(":")[1], 10);
+      this.loadLevel(levelId);
     }
   }
 
@@ -724,6 +838,8 @@ class ZumaGame {
     }
   }
 }
+
+ZumaGame._LEVELS = LEVELS;
 
 window.addEventListener("load", () => {
   const canvas = document.getElementById("gameCanvas");

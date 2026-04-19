@@ -995,16 +995,18 @@ function drawOverlay(game, ctx) {
   ctx.drawImage(game.hudPanelCache, 0, 0);
 
   // Title with manual offset shadow (no shadowBlur — perf)
+  const levelName = game.levelConfig?.name ?? "祭坛试炼";
+  const levelNum = game.currentLevel ?? 1;
   ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
   ctx.font = "700 22px Georgia";
-  ctx.fillText("祭坛试炼", 29, 41);
+  ctx.fillText(levelName, 29, 41);
   ctx.fillStyle = "#f0d57a";
-  ctx.fillText("祭坛试炼", 28, 40);
+  ctx.fillText(levelName, 28, 40);
 
   // Subtitle — dimmer
   ctx.fillStyle = "rgba(220, 210, 180, 0.5)";
   ctx.font = "11px Georgia";
-  ctx.fillText("石质祭坛 · 青铜机关", 30, 56);
+  ctx.fillText(`第 ${levelNum} 关 · 祭坛试炼`, 30, 56);
 
   // Status row with color dot indicator
   const stateLabel = game.getGameStateLabel();
@@ -1044,6 +1046,13 @@ function drawOverlay(game, ctx) {
     game.uiPressAction === "restart" &&
       game.isPointInsideRect(game.pointer.x, game.pointer.y, game.getHudRestartButtonRect()),
   );
+
+  // Back to level select button (bottom-left during gameplay)
+  const backRect = game.getHudBackButtonRect();
+  const isBackPressed =
+    game.uiPressAction === "backToSelect" &&
+    game.isPointInsideRect(game.pointer.x, game.pointer.y, backRect);
+  drawRestartButton(game, ctx, backRect, "选关", isBackPressed);
 }
 
 function drawHudNextPreview(game, ctx) {
@@ -1370,22 +1379,45 @@ function drawRoundStateCard(game, ctx) {
     midX, comboBadgeY + 16,
   );
 
-  // Restart button — larger, with pulse glow (no shadowBlur — perf)
-  const restartRect = game.getEndCardRestartButtonRect();
-  // Pulsing border glow via expanded translucent rect behind button
-  const pulse = 0.08 + 0.06 * Math.sin(game.roundEndTimer * 2.5);
-  ctx.fillStyle = isWin
-    ? `rgba(244, 217, 100, ${pulse})`
-    : `rgba(200, 100, 70, ${pulse * 0.7})`;
-  fillRoundedRect(ctx, restartRect.x - 4, restartRect.y - 4, restartRect.w + 8, restartRect.h + 8, 22);
+  // --- Action buttons ---
+  const isWinWithMore = isWin && game.currentLevel < (game.constructor._LEVELS || []).length;
 
+  if (isWinWithMore) {
+    const nextRect = game.getEndCardNextButtonRect();
+    const pulse = 0.08 + 0.06 * Math.sin(game.roundEndTimer * 2.5);
+    ctx.fillStyle = `rgba(244, 217, 100, ${pulse})`;
+    fillRoundedRect(ctx, nextRect.x - 4, nextRect.y - 4, nextRect.w + 8, nextRect.h + 8, 22);
+    drawRestartButton(
+      game, ctx, nextRect, "下一关",
+      game.uiPressAction === "nextLevel" &&
+        game.isPointInsideRect(game.pointer.x, game.pointer.y, nextRect),
+    );
+
+    const restartRect = game.getEndCardRestartButtonRect();
+    drawRestartButton(
+      game, ctx, restartRect, "重玩本关",
+      game.uiPressAction === "restart" &&
+        game.isPointInsideRect(game.pointer.x, game.pointer.y, restartRect),
+    );
+  } else {
+    const restartRect = game.getEndCardRestartButtonRect();
+    const pulse = 0.08 + 0.06 * Math.sin(game.roundEndTimer * 2.5);
+    ctx.fillStyle = isWin
+      ? `rgba(244, 217, 100, ${pulse})`
+      : `rgba(200, 100, 70, ${pulse * 0.7})`;
+    fillRoundedRect(ctx, restartRect.x - 4, restartRect.y - 4, restartRect.w + 8, restartRect.h + 8, 22);
+    drawRestartButton(
+      game, ctx, restartRect, isWin ? "重新开始" : "重试",
+      game.uiPressAction === "restart" &&
+        game.isPointInsideRect(game.pointer.x, game.pointer.y, restartRect),
+    );
+  }
+
+  const backRect = game.getEndCardBackButtonRect();
   drawRestartButton(
-    game,
-    ctx,
-    restartRect,
-    "重新开始",
-    game.uiPressAction === "restart" &&
-      game.isPointInsideRect(game.pointer.x, game.pointer.y, restartRect),
+    game, ctx, backRect, "返回选关",
+    game.uiPressAction === "backToSelect" &&
+      game.isPointInsideRect(game.pointer.x, game.pointer.y, backRect),
   );
 
   // Mayan zigzag trim at panel bottom
@@ -1695,9 +1727,141 @@ export function createTextures(game) {
   // path data which may not exist yet (e.g. during levelSelect state).
 }
 
+function drawLevelSelectScreen(game, ctx) {
+  const bg = ctx.createLinearGradient(0, 0, 0, GAME_HEIGHT);
+  bg.addColorStop(0, "#17383e");
+  bg.addColorStop(0.3, "#10272d");
+  bg.addColorStop(1, "#0a1519");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+  const slab = ctx.createLinearGradient(0, 120, 0, GAME_HEIGHT);
+  slab.addColorStop(0, "#7f8990");
+  slab.addColorStop(0.48, "#6e7880");
+  slab.addColorStop(1, "#5b646d");
+  ctx.fillStyle = slab;
+  ctx.fillRect(0, 120, GAME_WIDTH, GAME_HEIGHT - 120);
+
+  ctx.textAlign = "center";
+  ctx.font = "700 34px Georgia";
+  ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+  ctx.fillText("祭坛试炼", GAME_WIDTH / 2 + 1, 61);
+  ctx.fillStyle = "#f0d57a";
+  ctx.fillText("祭坛试炼", GAME_WIDTH / 2, 60);
+
+  ctx.fillStyle = "rgba(220, 210, 180, 0.5)";
+  ctx.font = "14px Georgia";
+  ctx.fillText("选择关卡", GAME_WIDTH / 2, 86);
+
+  ctx.strokeStyle = "rgba(200, 170, 50, 0.3)";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(100, 100);
+  ctx.lineTo(GAME_WIDTH - 100, 100);
+  ctx.stroke();
+
+  const LEVELS = game.constructor._LEVELS || [];
+  for (const level of LEVELS) {
+    drawLevelButton(game, ctx, level);
+  }
+
+  drawSoundButton(game, ctx);
+
+  const resetRect = game.getResetProgressButtonRect();
+  drawStonePanel(ctx, resetRect.x, resetRect.y, resetRect.w, resetRect.h, 14, {
+    top: "#5a636c",
+    bottom: "#485058",
+    stroke: "rgba(160, 80, 60, 0.5)",
+    innerStroke: "rgba(240, 180, 160, 0.1)",
+    shadow: "rgba(0, 0, 0, 0.15)",
+  });
+  ctx.fillStyle = "rgba(220, 160, 140, 0.75)";
+  ctx.font = "600 11px Georgia";
+  ctx.textAlign = "center";
+  ctx.fillText("重置进度", resetRect.x + resetRect.w / 2, resetRect.y + resetRect.h / 2 + 4);
+
+  ctx.textAlign = "start";
+}
+
+function drawLevelButton(game, ctx, level) {
+  const rect = game.getLevelButtonRect(level.id);
+  const isUnlocked = level.id <= game.levelProgress.unlockedLevel;
+  const levelData = game.levelProgress.levels[level.id];
+  const isCleared = levelData?.cleared ?? false;
+  const highScore = levelData?.highScore ?? 0;
+  const isPressed =
+    game.uiPressAction === `selectLevel:${level.id}` &&
+    game.isPointInsideRect(game.pointer.x, game.pointer.y, rect);
+
+  const topColor = !isUnlocked ? "#4a5058" : isCleared ? "#6a7a68" : "#7a8590";
+  const bottomColor = !isUnlocked ? "#3a4248" : isCleared ? "#4e6048" : "#636e78";
+  const strokeColor = isCleared
+    ? "rgba(180, 200, 80, 0.7)"
+    : isUnlocked
+      ? "rgba(180, 150, 80, 0.55)"
+      : "rgba(80, 80, 80, 0.4)";
+
+  drawStonePanel(ctx, rect.x, rect.y + (isPressed ? 1 : 0), rect.w, rect.h, 18, {
+    top: topColor,
+    bottom: bottomColor,
+    stroke: strokeColor,
+    innerStroke: "rgba(240, 225, 180, 0.08)",
+    shadow: "rgba(8, 12, 16, 0.15)",
+  });
+
+  const cx = rect.x + rect.w / 2;
+  ctx.textAlign = "center";
+
+  ctx.font = "700 28px Georgia";
+  ctx.fillStyle = isUnlocked ? "#f0d57a" : "rgba(120, 120, 120, 0.5)";
+  ctx.fillText(`${level.id}`, cx, rect.y + 38 + (isPressed ? 1 : 0));
+
+  ctx.font = "600 13px Georgia";
+  ctx.fillStyle = isUnlocked ? "rgba(240, 225, 185, 0.85)" : "rgba(120, 120, 120, 0.4)";
+  ctx.fillText(level.name, cx, rect.y + 60 + (isPressed ? 1 : 0));
+
+  ctx.font = "11px Georgia";
+  if (!isUnlocked) {
+    ctx.fillStyle = "rgba(120, 120, 120, 0.4)";
+    ctx.fillText("🔒 未解锁", cx, rect.y + 82 + (isPressed ? 1 : 0));
+  } else if (isCleared) {
+    ctx.fillStyle = "rgba(180, 220, 100, 0.8)";
+    ctx.fillText("✓ 已通关", cx, rect.y + 82 + (isPressed ? 1 : 0));
+  } else {
+    ctx.fillStyle = "rgba(220, 210, 180, 0.5)";
+    ctx.fillText("未通关", cx, rect.y + 82 + (isPressed ? 1 : 0));
+  }
+
+  if (highScore > 0) {
+    ctx.font = "600 11px Georgia";
+    ctx.fillStyle = "#c8bfa8";
+    ctx.fillText(`最高分: ${highScore}`, cx, rect.y + 100 + (isPressed ? 1 : 0));
+  }
+
+  if (isUnlocked) {
+    const dotY = rect.y + 112 + (isPressed ? 1 : 0);
+    const dotSpacing = 10;
+    const dotStart = cx - ((level.colorCount - 1) * dotSpacing) / 2;
+    for (let d = 0; d < level.colorCount; d++) {
+      const palette = BALL_PALETTES[d % BALL_PALETTES.length];
+      ctx.fillStyle = palette.base;
+      ctx.beginPath();
+      ctx.arc(dotStart + d * dotSpacing, dotY, 3, 0, TAU);
+      ctx.fill();
+    }
+  }
+
+  ctx.textAlign = "start";
+}
+
 export function render(game) {
   const ctx = game.ctx;
   ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+  if (game.gameState === "levelSelect") {
+    drawLevelSelectScreen(game, ctx);
+    return;
+  }
 
   // Screen shake on defeat — offset the entire canvas briefly
   if (game.screenShake > 0) {
