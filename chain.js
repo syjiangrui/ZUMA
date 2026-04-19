@@ -9,8 +9,10 @@ import {
 } from './config.js';
 
 export function createChain(game) {
-  game.chain = Array.from({ length: START_CHAIN_COUNT }, (_, index) =>
-    createChainBall(game, index % 4),
+  const chainCount = game.levelConfig?.chainCount ?? START_CHAIN_COUNT;
+  const colorCount = game.levelConfig?.colorCount ?? 4;
+  game.chain = Array.from({ length: chainCount }, (_, index) =>
+    createChainBall(game, index % colorCount),
   );
 
   // Zuma-style rounds should begin with the chain still fully outside the
@@ -96,7 +98,8 @@ function advanceChainBaseline(game, dt) {
     return;
   }
 
-  game.chainHeadS += CHAIN_SPEED * dt * getChainSpeedScale(game);
+  const speed = game.levelConfig?.chainSpeed ?? CHAIN_SPEED;
+  game.chainHeadS += speed * dt * getChainSpeedScale(game);
 }
 
 // After a seam rejoins, briefly hold back the shared conveyor so the merge
