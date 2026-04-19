@@ -817,6 +817,8 @@ rotation = s / radius
 
 优化结果：gradient 创建从 ~190/帧 降到 ~8/帧，lineTo 从 1848/帧降到 0。`ctx.shadowBlur` 调用降到 0（Canvas 2D shadowBlur 触发 GPU 高斯模糊，开销极高；全部改为手工偏移渲染——先画深色偏移 +1px 文字，再画正色原位文字）。
 
+补充约束：`fillRoundedRect()` 只用于“确实要填充”的场景；如果只是给 `clip()` 或 `stroke()` 提供圆角路径，必须使用 `traceRoundedRect()`。2026-04-19 的 HUD 回归问题就是因为 `hudPanelCache` 在裁剪前误调用了 `fillRoundedRect()`，把左侧标题石板先用默认黑色填了一层。
+
 新增渲染代码时，应优先检查 gradient 或路径是否可以纳入上述缓存体系，避免回退到每帧重建。
 
 ## 20. 2026-04-18 Ball Material And Rolling Texture Update

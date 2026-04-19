@@ -826,6 +826,7 @@ What has already changed in code (I — complete):
 - Match feedback: score number with manual offset shadow, combo>2 triggers gold-flashing panel border.
 - All `ctx.shadowBlur` calls removed (caused GPU performance spikes). Replaced with manual offset text rendering (draw dark at +1px, then light at original position) and expanded translucent rects for glow effects.
 - All panel colors unified to scene-matching grey: `#7a8590` / `#636e78` (was grey-blue `#6e7880` / `#57626b`).
+- 2026-04-19 HUD regression fix: the left title slab turned near-black because `fillRoundedRect()` was used to build a clip path inside `hudPanelCache`, which filled the slab with the default black fill before `clip()`. Added `traceRoundedRect()` and moved clip/stroke-only call sites to it.
 - Phase 1 legacy DOM `.hud` element hidden (`display: none` in index.html) — was overlaying Canvas with near-black background.
 
 What has already changed (K — performance, effectively complete):

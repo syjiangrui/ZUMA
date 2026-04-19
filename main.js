@@ -2470,8 +2470,7 @@ class ZumaGame {
 
       // Stone speckle texture on main panel
       hCtx.save();
-      hCtx.beginPath();
-      this.fillRoundedRect(hCtx, 18, 16, 228, 88, 20);
+      this.traceRoundedRect(hCtx, 18, 16, 228, 88, 20);
       hCtx.clip();
       hCtx.fillStyle = "rgba(255, 255, 255, 0.04)";
       for (let i = 0; i < 18; i += 1) {
@@ -2497,8 +2496,7 @@ class ZumaGame {
 
       // Mayan zigzag trim along bottom edge of main panel
       hCtx.save();
-      hCtx.beginPath();
-      this.fillRoundedRect(hCtx, 18, 16, 228, 88, 20);
+      this.traceRoundedRect(hCtx, 18, 16, 228, 88, 20);
       hCtx.clip();
       const zigY = 100;
       const zigH = 6;
@@ -2687,8 +2685,7 @@ class ZumaGame {
 
     // Stone speckle texture on card panel
     ctx.save();
-    ctx.beginPath();
-    this.fillRoundedRect(ctx, panelX + 2, panelY + 2, panelWidth - 4, panelHeight - 4, 24);
+    this.traceRoundedRect(ctx, panelX + 2, panelY + 2, panelWidth - 4, panelHeight - 4, 24);
     ctx.clip();
     ctx.fillStyle = "rgba(255, 255, 255, 0.03)";
     for (let i = 0; i < 14; i += 1) {
@@ -2814,8 +2811,7 @@ class ZumaGame {
 
     // Mayan zigzag trim at panel bottom
     ctx.save();
-    ctx.beginPath();
-    this.fillRoundedRect(ctx, panelX + 2, panelY + 2, panelWidth - 4, panelHeight - 4, 24);
+    this.traceRoundedRect(ctx, panelX + 2, panelY + 2, panelWidth - 4, panelHeight - 4, 24);
     ctx.clip();
     const zigY2 = panelY + panelHeight - 8;
     const zigH2 = 5;
@@ -2914,12 +2910,12 @@ class ZumaGame {
 
     ctx.lineWidth = 2;
     ctx.strokeStyle = stroke;
-    this.fillRoundedRect(ctx, x, y, width, height, radius);
+    this.traceRoundedRect(ctx, x, y, width, height, radius);
     ctx.stroke();
 
     ctx.lineWidth = 1;
     ctx.strokeStyle = innerStroke;
-    this.fillRoundedRect(ctx, x + 3, y + 3, width - 6, height - 6, Math.max(4, radius - 3));
+    this.traceRoundedRect(ctx, x + 3, y + 3, width - 6, height - 6, Math.max(4, radius - 3));
     ctx.stroke();
 
     ctx.restore();
@@ -3163,7 +3159,10 @@ class ZumaGame {
     ctx.restore();
   }
 
-  fillRoundedRect(ctx, x, y, width, height, radius) {
+  // Path-only rounded rect for clip/stroke sites. Using fillRoundedRect() when
+  // only geometry is needed can silently pre-fill cached HUD panels with the
+  // default black fill before clip() runs.
+  traceRoundedRect(ctx, x, y, width, height, radius) {
     const r = Math.min(radius, width / 2, height / 2);
 
     ctx.beginPath();
@@ -3177,6 +3176,10 @@ class ZumaGame {
     ctx.lineTo(x, y + r);
     ctx.quadraticCurveTo(x, y, x + r, y);
     ctx.closePath();
+  }
+
+  fillRoundedRect(ctx, x, y, width, height, radius) {
+    this.traceRoundedRect(ctx, x, y, width, height, radius);
     ctx.fill();
   }
 

@@ -308,8 +308,9 @@ The rendering pipeline uses aggressive offscreen-canvas caching to avoid creatin
 - **`bandShadeCache`**: Top/bottom + side shading for rolling band texture, pre-rendered once.
 - **`frogCacheBehind` / `frogCacheFront`**: Stone frog split into two layers (body+lower jaw vs. upper jaw+eyes) so the held ball can be drawn between them at runtime.
 - **`hudPanelCache`**: HUD stone panel backgrounds with speckle texture, Mayan zigzag trim, and sun icon — rendered once on first draw. Text (score, combo, status) drawn live each frame with gold/grey color hierarchy and manual offset text shadows (no `shadowBlur` for performance).
+- **`traceRoundedRect()`**: Path-only rounded-rect helper for `clip()` / `stroke()` use sites. Added after a HUD regression where `fillRoundedRect()` was reused as a path builder and pre-filled the cached title slab with the default black fill.
 
-When modifying rendering code, always check whether a gradient or path can be moved into one of these caches. Only rolling band textures (rotation-dependent) and dynamic text/scores need per-frame rendering.
+When modifying rendering code, always check whether a gradient or path can be moved into one of these caches. Only rolling band textures (rotation-dependent) and dynamic text/scores need per-frame rendering. If a rounded rectangle is only needed for `clip()` or `stroke()`, use `traceRoundedRect()` instead of `fillRoundedRect()`.
 
 ## Performance Considerations
 
