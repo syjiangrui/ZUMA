@@ -40,6 +40,8 @@ import {
   render as renderFn,
   createTextures as createTexturesFn,
 } from './render.js';
+import { LEVELS, getLevelById } from './levels.js';
+import { loadProgress, saveProgress, recordLevelClear, updateHighScore, resetProgress } from './save.js';
 
 class ZumaGame {
   constructor(canvas) {
@@ -93,9 +95,12 @@ class ZumaGame {
     // moment to "land" before the chain resumes full conveyor speed.
     this.mergeSettle = null;
     this.chainIntro = null;
+    // Level management — added in Phase 4.
+    this.levelProgress = loadProgress();
+    this.currentLevel = 1;
+    this.levelConfig = getLevelById(1);
     this.lastTime = 0;
 
-    this.createPath();
     this.createTextures();
     this.resetRound();
     this.bindEvents();
@@ -109,7 +114,10 @@ class ZumaGame {
   // Gameplay still only moves balls by path distance; the spiral is just a more
   // faithful geometric source for the sampled path points.
   createPath() {
-    const pathData = createPathFn(this.shooter.x, this.shooter.y);
+    const cfg = this.levelConfig;
+    const pathType = cfg?.pathType ?? "spiral";
+    const pathParams = cfg?.pathParams ?? {};
+    const pathData = createPathFn(this.shooter.x, this.shooter.y, pathType, pathParams);
     this.pathPoints = pathData.pathPoints;
     this.totalPathLength = pathData.totalPathLength;
     this.cachedTrackPath = pathData.cachedTrackPath;
@@ -367,6 +375,13 @@ class ZumaGame {
   // id allocation. This is the single restart path used by the constructor, the
   // prototype tail escape, and future restart UI.
   resetRound() {
+    // Apply level config (or fall back to defaults for backward compatibility).
+    const cfg = this.levelConfig;
+    if (cfg && cfg.shooterPos) {
+      this.shooter.x = cfg.shooterPos.x;
+      this.shooter.y = cfg.shooterPos.y;
+    }
+
     this.setGameState("playing");
     this.projectile = null;
     this.splitState = null;
@@ -389,13 +404,30 @@ class ZumaGame {
     this.pointer.active = false;
     this.pointer.x = this.shooter.x + 90;
     this.pointer.y = this.shooter.y - 120;
+
+    // Rebuild path for this level (path shape/params may differ per level).
+    this.createPath();
+    // Invalidate cached rendering that depends on the path.
+    this.hudPanelCache = null;
+    this.staticSceneCache = null;
+
     this.createChain();
   }
 
+  // Switch to a specific level and start a fresh round.
+  loadLevel(levelId) {
+    const cfg = getLevelById(levelId);
+    if (!cfg) {
+      return;
+    }
+    this.currentLevel = levelId;
+    this.levelConfig = cfg;
+    this.resetRound();
+  }
+
   getRandomPaletteIndex() {
-    // The prototype currently limits itself to the first four colors to keep
-    // match density readable while the rules are still being tuned.
-    return Math.floor(Math.random() * 4);
+    const colorCount = this.levelConfig?.colorCount ?? 4;
+    return Math.floor(Math.random() * colorCount);
   }
 
   // --- Input & UI ---------------------------------------------------------

@@ -1691,7 +1691,8 @@ export function createTextures(game) {
   );
   createBallRenderCache(game);
   createFrogCache(game);
-  createStaticSceneCache(game);
+  // staticSceneCache is now lazily created in render() because it depends on
+  // path data which may not exist yet (e.g. during levelSelect state).
 }
 
 export function render(game) {
@@ -1707,7 +1708,10 @@ export function render(game) {
     ctx.translate(ox, oy);
   }
 
-  // Static scene (background + track + goal) is pre-rendered once
+  // Static scene (background + track + goal) — rebuilt when path changes
+  if (!game.staticSceneCache) {
+    createStaticSceneCache(game);
+  }
   ctx.drawImage(game.staticSceneCache, 0, 0);
   drawChain(game, ctx);
   drawParticles(game, ctx);
