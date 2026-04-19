@@ -839,3 +839,39 @@ Phase 3 status: **complete**. G/H/I/J/K all delivered. L (hand-feel micro-tuning
 
 Next expected move:
 - Phase 4 (multi-level, special ball types, difficulty curves, save/load).
+
+## 18. Phase 4 状态 (2026-04-19)
+
+### Phase 4 完成状态
+
+原 Phase 4 已拆分为两部分：
+- **Phase 4**（已完成）：多关卡流程闭环
+- **Phase 5**（待开始）：特殊球、扩展关卡、PWA、暂停系统
+
+详细设计文档：`docs/superpowers/specs/2026-04-19-phase4-phase5-split-design.md`
+实施计划：`docs/superpowers/plans/2026-04-19-phase4-multi-level.md`
+
+### 工作包完成情况
+
+- 工作包 M（关卡数据模型）：已完成 — `levels.js` 8 关配置
+- 工作包 N（选关界面+切换）：已完成 — levelSelect 状态、Canvas 选关界面、关卡间导航
+- 工作包 O（难度曲线）：已完成 — 8 关参数递进（球数 20→42，速度 52→86，颜色 3→5）
+- 工作包 P（本地存档）：已完成 — `save.js` localStorage 持久化
+- 工作包 Q（路径泛化）：已完成 — path.js 调度器 + 4 种路径生成器
+- 工作包 R（路径分配+打磨）：已完成 — 8 关分配不同路径、缩略图预览、淡入淡出过渡、全通关画面
+
+### 新增模块
+
+- `levels.js` — 关卡配置数组（id、名称、球数、速度、颜色数、路径类型+参数、射手位置）
+- `save.js` — localStorage 存档读写（版本化格式，支持未来迁移）
+
+### 路径系统
+
+path.js 已重构为调度器模式：
+- `createPath(shooterX, shooterY, pathType, pathParams)` — 入口调度
+- `finalizePath(sampled)` — 共享后处理（弧长参数化 + Path2D 缓存）
+- 4 种生成器：spiral（螺旋）、serpentine（蛇行）、rectangular（回字）、zigzag（之字）
+
+### 下一步
+
+进入 Phase 5：特殊球系统框架、核心特殊球（爆炸球、变色球、倒退球、减速球）、扩展关卡、暂停系统、BGM、PWA 支持。

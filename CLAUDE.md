@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Repository**: https://github.com/syjiangrui/ZUMA.git
 
-**Current Status**: Phase 3 complete. ES module refactoring complete (8 modules). Core gameplay rules are stable; visual polish, audio, particles, HUD skin, and performance caching are done. Next step is Phase 4 (multi-level, special balls, difficulty curves, save/load).
+**Current Status**: Phase 4 complete. ES module refactoring complete (10 modules). 8-level game with level selection, multiple path types, difficulty curve, local save/load, and fade transitions.
 
 ## Development Commands
 
@@ -252,6 +252,25 @@ When working on Phase 3 tasks:
 - **Do** improve ball rendering, add visual feedback, and refine hand-feel within current constraints
 - Split/merge hand-feel optimization is welcome but should not alter rule correctness
 
+## Phase 3 → Phase 4 Transition
+
+**Phase 3** (completed) established visual polish, audio, particles, HUD skin, and performance caching.
+
+**Phase 4** (completed) is the multi-level game loop:
+- 8 levels with level selection UI (Mayan-themed stone buttons)
+- 4 path types: spiral, serpentine, rectangular, zigzag
+- Per-level difficulty curve (ball count, speed, color count)
+- localStorage save/load for progress
+- Fade transitions between levels
+- All-clear celebration screen
+- Path system refactored into dispatcher + pluggable generators
+
+When working on Phase 5 tasks:
+- **Do not** change the path generator interface (sampled[] → finalizePath → pathPoints[])
+- **Do not** change the level config schema without updating all 8 level definitions
+- **Do** add new path types by implementing generators and registering in createPath() switch
+- **Do** add special ball types by extending the ball data model, not the chain rules
+
 ## Completed Refactoring
 
 The modularization described below has been completed. The codebase is now split into 8 ES modules:
@@ -285,6 +304,8 @@ The modularization described below has been completed. The codebase is now split
 ├── match.js                # Match detection, scoring, action contexts (~330 lines)
 ├── projectile.js           # Projectile flight, collision, insertion (~141 lines)
 ├── render.js               # All draw*, texture generation, HUD (~1729 lines)
+├── levels.js               # 8-level configuration array (~93 lines)
+├── save.js                 # localStorage save/load for level progress (~75 lines)
 ├── main.js                 # ZumaGame orchestrator, input, particles, loop (~703 lines)
 ├── CLAUDE.md               # This file
 ├── TECHNICAL_ARCHITECTURE.md  # Implementation deep-dive (reference docs)
@@ -301,7 +322,10 @@ config.js   sfx.js (no deps)
    ├── match.js
    ├── projectile.js
    ├── render.js
-   └── main.js ← imports from ALL modules
+   ├── levels.js
+   └── main.js ← imports from ALL modules (including levels.js, save.js)
+
+save.js has no deps (standalone localStorage utility)
 ```
 
 No module imports from a sibling module (except config.js). All cross-subsystem calls flow through `game.*` method wrappers on ZumaGame, preventing circular dependencies.
@@ -356,6 +380,8 @@ When modifying rendering code, always check whether a gradient or path can be mo
 - `MERGE_SETTLE_DURATION`: Brief speed reduction after re-merge (hand-feel, not rule)
 
 Changing these does not require code restructuring; they are all at the top of `main.js`.
+
+Per-level overrides for chainCount, chainSpeed, and colorCount are in `levels.js`. Global defaults in config.js serve as fallbacks.
 
 ## External Resources & References
 
