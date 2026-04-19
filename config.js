@@ -13,7 +13,7 @@ export const START_CHAIN_COUNT = 30;
 // Base movement tuning. CHAIN_SPEED is the normal conveyor speed toward the
 // goal. EXIT_GAP lets the whole chain travel a bit past the visible goal before
 // the prototype resets.
-export const CHAIN_SPEED = 72;
+export const CHAIN_SPEED = 54;
 export const CHAIN_ENTRY_SPEED = 340;
 export const CHAIN_ENTRY_TAIL_S = -42;
 export const CHAIN_ENTRY_START_HEAD_S = -32;
