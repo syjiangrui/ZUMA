@@ -4,12 +4,12 @@
 
 这份文档描述当前祖马原型的真实实现结构，而不是理想化设计稿。目标是解决两个问题：
 
-1. 代码已拆分为 8 个 ES 模块后，后续开发者需要快速理解”系统是怎么跑起来的”。
+1. 代码已拆分为 10 个 ES 模块后，后续开发者需要快速理解”系统是怎么跑起来的”。
 2. 后续做 Phase 2/3/4 的功能时，需要知道哪些是稳定规则层，哪些只是表现层和手感层。
 
 当前实现特点：
 
-- 使用 ES 模块拆分为 8 个文件（`config.js`, `sfx.js`, `path.js`, `chain.js`, `match.js`, `projectile.js`, `render.js`, `main.js`），`main.js` 中的 `ZumaGame` 类作为编排器
+- 使用 ES 模块拆分为 10 个文件（`config.js`, `sfx.js`, `path.js`, `chain.js`, `match.js`, `projectile.js`, `render.js`, `levels.js`, `save.js`, `main.js`），`main.js` 中的 `ZumaGame` 类作为编排器
 - 使用 `Canvas 2D` 绘制轨道、球体、HUD 和场景
 - 使用固定逻辑分辨率 `430 x 932`
 - 支持桌面和手机触控输入
@@ -20,25 +20,29 @@
 - [main.js](main.js) — ZumaGame 编排器（~703 行）
 - [config.js](config.js) — 常量与调色板
 - [sfx.js](sfx.js) — 音频合成
-- [path.js](path.js) — 路径几何
+- [path.js](path.js) — 路径几何（多种路径生成器 + 调度器）
 - [chain.js](chain.js) — 球链 + 断链/并链
 - [match.js](match.js) — 匹配检测与计分
 - [projectile.js](projectile.js) — 弹射体系统
 - [render.js](render.js) — 渲染与纹理生成
+- [levels.js](levels.js) — 8 关卡配置（路径类型、颜色数、链速等）
+- [save.js](save.js) — localStorage 持久化（关卡进度）
 - [ZUMA_PLAN.md](ZUMA_PLAN.md)
 
 ## 2. 当前代码组织方式
 
-虽然代码已拆分为 8 个 ES 模块，但逻辑上仍然对应 8 个子系统：
+虽然代码已拆分为 10 个 ES 模块，但逻辑上仍然对应 10 个子系统：
 
 1. 基础配置与常量
 2. 运行时状态与回合生命周期
 3. 输入与 UI 交互
-4. 路径与几何计算
+4. 路径与几何计算（多路径类型调度）
 5. 球链推进、插入、断链、并链
 6. 消除、连锁、计分
 7. 渲染
 8. 工具函数与纹理生成
+9. 关卡配置（8 关定义、路径类型、难度曲线）
+10. 存档与持久化（localStorage 关卡进度）
 
 单文件的优点：
 
@@ -222,18 +226,47 @@ ball.s = chainHeadS - index * BALL_SPACING + offset + splitOffset
 
 ### 6.1 路径定义
 
-当前路径由 `createPath()` 中的一组控制点定义，使用 `Catmull-Rom` 插值平滑后，再重新采样为离散路径点。
+路径系统已从单一螺旋轨道重构为多路径类型调度架构。`path.js` 现在包含一个调度器和 4 种路径生成器。
+
+调度入口：
+
+```js
+createPath(shooterX, shooterY, pathType, pathParams) → finalizePath()
+```
+
+4 种路径生成器：
+
+| 生成器 | pathType | 描述 |
+|--------|----------|------|
+| `generateSpiralPath` | `"spiral"` | 阿基米德螺旋（原始默认路径） |
+| `generateSerpentinePath` | `"serpentine"` | 蛇形 S 曲线 |
+| `generateRectangularPath` | `"rectangular"` | 矩形/方形折线路径 |
+| `generateZigzagPath` | `"zigzag"` | 锯齿形路径 |
+
+`createPath()` 根据 `pathType` 参数分发到对应生成器，生成器输出控制点，随后 `finalizePath()` 统一执行 Catmull-Rom 插值 + 弧长重采样，产出标准 `pathPoints[]`。
 
 这套实现分成两步：
 
-1. 从控制点插值得到足够密的采样点
-2. 为每个采样点计算累计弧长 `len`
+1. 生成器产出粗控制点
+2. `finalizePath()` 对控制点做 Catmull-Rom 插值得到密采样，再为每个采样点计算累计弧长 `len`
 
 最终 `pathPoints` 中每个元素结构为：
 
 ```js
 { x, y, len }
 ```
+
+### 6.2 关卡配置如何驱动路径
+
+路径参数从关卡配置流入：
+
+```
+levels.js (LEVELS[i].pathType, pathParams)
+  → main.js loadLevel() 设置 game.levelConfig
+    → createPath(shooterX, shooterY, levelConfig.pathType, levelConfig.pathParams)
+```
+
+每个关卡可以指定不同的路径类型和参数（如圈数、振幅、段数等），使 8 个关卡拥有完全不同的视觉轨道。
 
 ### 6.2 为什么要做弧长采样
 
@@ -296,8 +329,9 @@ ball.s = chainHeadS - index * BALL_SPACING + offset + splitOffset
 
 ### 8.1 gameState
 
-当前回合只有 3 个状态：
+当前回合有 4 个状态：
 
+- `levelSelect`
 - `playing`
 - `win`
 - `lose`
@@ -308,6 +342,7 @@ ball.s = chainHeadS - index * BALL_SPACING + offset + splitOffset
 
 - 切换回合状态
 - 在离开 `playing` 时禁用发射球和拖动输入
+- 在进入 `levelSelect` 时展示关卡选择界面
 
 ### 8.2 resetRound()
 
@@ -686,16 +721,18 @@ rotation = s / radius
 
 ### 16.1 ~~单文件过大~~ ✅ 已解决
 
-代码已拆分为 8 个 ES 模块：
+代码已拆分为 10 个 ES 模块：
 
 - `config.js`：常量和颜色表
 - `sfx.js`：音频合成
-- `path.js`：路径采样和几何查询
+- `path.js`：路径采样、几何查询、多路径类型调度器
 - `chain.js`：链条推进、插入、断链、并链
 - `match.js`：action context、计分、连击、匹配检测
 - `projectile.js`：弹射体飞行、碰撞、插入
-- `render.js`：所有绘制函数和纹理生成
-- `main.js`：ZumaGame 编排器、输入、粒子、游戏循环
+- `render.js`：所有绘制函数和纹理生成（含关卡选择界面）
+- `levels.js`：8 关卡配置数组（路径类型、球链数、颜色数、链速等）
+- `save.js`：localStorage 持久化（关卡解锁进度、最高分）
+- `main.js`：ZumaGame 编排器、输入、粒子、游戏循环、关卡管理
 
 模块间通过 `game.*` 委托包装方法路由，无循环依赖。
 
@@ -729,13 +766,15 @@ rotation = s / radius
 
 模块化拆分已按以下顺序完成：
 
-1. ✅ 路径与几何 → `path.js`
+1. ✅ 路径与几何 → `path.js`（Phase 4 扩展为多路径调度器）
 2. ✅ 计分与事件流 → `match.js`
-3. ✅ 断链系统 → `chain.js`
+3. ✅ 断链系统 → `chain.js`（Phase 4 读取关卡配置）
 4. ✅ 弹射体 → `projectile.js`
-5. ✅ 渲染 → `render.js`
+5. ✅ 渲染 → `render.js`（Phase 4 新增关卡选择/全通界面）
 6. ✅ 音频 → `sfx.js`
 7. ✅ 常量 → `config.js`
+8. ✅ 关卡配置 → `levels.js`（Phase 4 新增）
+9. ✅ 存档持久化 → `save.js`（Phase 4 新增）
 
 ## 19. 总结
 
@@ -827,3 +866,118 @@ The current belt approach is the preferred compromise for now:
 - cons: it is a visual simulation of wrapped stone ornament, not a true full-sphere texture projection.
 
 Future material work should continue on top of this model unless a later rewrite introduces a genuinely better sphere-mapping solution.
+
+## 21. 2026-04-19 Phase 4: Multi-Level System & Persistence
+
+Phase 4 transforms the single-level prototype into a complete 8-level game with persistence. Two new modules were added (`levels.js`, `save.js`), and existing modules were extended.
+
+### 21.1 Level Configuration (`levels.js`)
+
+`levels.js` exports a `LEVELS` array of 8 level config objects. Each level specifies:
+
+| 字段 | 含义 |
+|------|------|
+| `name` | 关卡显示名称 |
+| `pathType` | 路径类型：`"spiral"` / `"serpentine"` / `"rectangular"` / `"zigzag"` |
+| `pathParams` | 路径生成器的参数（圈数、振幅、段数等） |
+| `chainCount` | 初始球链长度 |
+| `colorCount` | 使用的颜色数（3–5，影响难度） |
+| `chainSpeed` | 链条前进速度 |
+| `shooterX` / `shooterY` | 发射器位置（不同路径需要不同中心点） |
+
+难度曲线通过逐关增加 `colorCount`、`chainCount`、`chainSpeed` 实现。
+
+### 21.2 Save/Load (`save.js`)
+
+`save.js` 提供 localStorage 持久化：
+
+- `loadProgress()` — 读取已解锁关卡索引和各关最高分
+- `saveProgress(levelProgress)` — 写入进度
+- `resetProgress()` — 清除存档
+
+数据模型：
+
+```js
+levelProgress = {
+  unlockedUpTo: <int>,     // 最高已解锁关卡索引
+  scores: [<int>, ...]     // 每关最高分（未通关为 0）
+}
+```
+
+通关一关自动解锁下一关。进度在每次 `onLevelWin()` 时保存。
+
+### 21.3 Level Management in `main.js`
+
+ZumaGame 新增的关卡管理字段和方法：
+
+| 字段/方法 | 职责 |
+|-----------|------|
+| `currentLevel` | 当前关卡索引 (0-based) |
+| `levelConfig` | 当前关卡的配置对象（从 LEVELS 数组取出） |
+| `levelProgress` | 解锁进度与最高分 |
+| `loadLevel(index)` | 加载指定关卡：设置 levelConfig → createPath → resetRound |
+| `goToLevelSelect()` | 切换到 `levelSelect` 状态 |
+| `onLevelWin()` | 通关处理：更新进度 → 保存 → 展示胜利界面 |
+| `onLevelLose()` | 失败处理：展示重试/返回选项 |
+
+### 21.4 Level Config Flow
+
+关卡配置从定义到运行时的流动路径：
+
+```
+levels.js (LEVELS[])
+  ↓
+main.js loadLevel(index)
+  ├→ game.levelConfig = LEVELS[index]
+  ├→ path.js createPath(shooterX, shooterY, pathType, pathParams)
+  ├→ chain.js updateChain() 读取 game.levelConfig.chainSpeed (fallback: CHAIN_SPEED)
+  ├→ chain.js createInitialChain() 读取 game.levelConfig.chainCount, colorCount
+  └→ render.js 显示关卡名称到 HUD
+```
+
+`chain.js` 中的动态参数读取：
+- `chainCount`：初始生成球链时使用的球数
+- `colorCount`：随机颜色范围（影响匹配概率，即难度核心）
+- `chainSpeed`：`chainHeadS` 每帧推进量的基准速度
+
+所有这些都通过 `game.levelConfig.*` 访问，并提供 fallback 到 `config.js` 中的全局常量，确保向后兼容。
+
+### 21.5 Fade Transitions
+
+关卡切换使用淡入淡出过渡：
+
+- `fadeOverlay` 状态对象：`{ alpha, direction, callback }`
+- `startFade(callback)` — 启动淡出 → 执行回调 → 淡入
+- `updateFade(dt)` — 每帧更新 alpha，在 alpha=1 时执行回调（关卡加载/界面切换）
+
+这避免了关卡切换时的突兀画面跳转。
+
+### 21.6 Render Additions for Phase 4
+
+`render.js` 新增的绘制函数：
+
+| 函数 | 职责 |
+|------|------|
+| `drawLevelSelectScreen()` | 关卡选择主界面（标题 + 关卡按钮网格） |
+| `drawLevelButton()` | 单个关卡按钮（序号、锁定状态、最高分） |
+| `drawPathThumbnail()` | 关卡按钮内的微缩路径预览 |
+| `drawAllClearScreen()` | 全部通关庆祝界面 |
+
+HUD 也新增了：
+- 左上角返回按钮（返回关卡选择）
+- 动态关卡名称显示（替代固定标题）
+
+### 21.7 Module Dependency Graph (Phase 4, 10 modules)
+
+```
+config.js   sfx.js   levels.js   save.js  (no deps)
+   ↑
+   ├── path.js
+   ├── chain.js
+   ├── match.js
+   ├── projectile.js
+   ├── render.js
+   └── main.js ← imports from ALL modules (including levels.js, save.js)
+```
+
+`levels.js` 和 `save.js` 与其他模块无直接依赖，仅被 `main.js` 导入。`chain.js` 通过 `game.levelConfig` 间接读取关卡配置，不直接 import `levels.js`。
