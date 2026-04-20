@@ -40,6 +40,14 @@ body{background:#0e1218;color:#ddd;font-family:-apple-system,sans-serif;display:
 #canvas-wrap{flex:1;display:flex;align-items:center;justify-content:center;background:#080c10;position:relative}
 #canvas-wrap canvas{border:1px solid #2a3444;border-radius:8px;box-shadow:0 0 40px rgba(0,0,0,0.5);cursor:crosshair}
 #hint{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);color:#3a4a5a;font-size:11px;pointer-events:none}
+#ref-bar{padding:8px 16px;border-top:1px solid #2a3444;display:flex;flex-direction:column;gap:6px}
+#ref-bar .ref-head{display:flex;align-items:center;gap:6px;font-size:11px;color:#5a6a7a}
+#ref-bar .ref-head .ref-title{flex:1}
+#ref-bar .ref-row{display:flex;align-items:center;gap:6px;font-size:11px}
+#ref-bar label{color:#5a6a7a;min-width:32px}
+#ref-bar input[type=range]{flex:1;height:4px;accent-color:#f0d57a}
+#ref-bar .ref-val{color:#8a9aaa;min-width:28px;text-align:right;font-size:10px}
+#ref-bar .btn{padding:3px 8px;font-size:11px}
 </style>
 </head>
 <body>
@@ -67,6 +75,28 @@ body{background:#0e1218;color:#ddd;font-family:-apple-system,sans-serif;display:
     <button class="btn" onclick="updateShooter()" style="padding:3px 8px;font-size:11px">应用</button>
   </div>
 
+  <div id="ref-bar">
+    <div class="ref-head">
+      <span class="ref-title">参考图垫底</span>
+      <button class="btn" onclick="uploadRefImage()">上传图片</button>
+      <button class="btn" onclick="removeRefImage()" id="refRemoveBtn" disabled>移除</button>
+    </div>
+    <div class="ref-row">
+      <label>透明</label>
+      <input type="range" id="refOpacity" min="0" max="100" value="40" oninput="updateRefSettings()">
+      <span class="ref-val" id="refOpacityVal">40%</span>
+    </div>
+    <div class="ref-row">
+      <label>缩放</label>
+      <input type="range" id="refScale" min="10" max="300" value="100" oninput="updateRefSettings()">
+      <span class="ref-val" id="refScaleVal">100%</span>
+    </div>
+    <div class="ref-row">
+      <button class="btn" onclick="resetRefPos()" id="refResetBtn" disabled>重置位置</button>
+      <span style="color:#3a4a5a;font-size:10px;flex:1;text-align:right">Alt+拖拽移动图片</span>
+    </div>
+  </div>
+
   <div id="export-bar">
     <button class="btn primary" onclick="saveToFile()" style="flex:1">保存到文件</button>
     <button class="btn" onclick="loadFromFile()" style="flex:1">从文件加载</button>
@@ -76,7 +106,7 @@ body{background:#0e1218;color:#ddd;font-family:-apple-system,sans-serif;display:
 
 <div id="canvas-wrap">
   <canvas id="cv"></canvas>
-  <div id="hint">拖拽端点和控制点 | 端点接近时自动吸附对齐 | 滚轮缩放 | 中键平移</div>
+  <div id="hint">拖拽端点和控制点 | 端点接近时自动吸附对齐 | 滚轮缩放 | 中键平移 | Alt+拖拽移动参考图</div>
 </div>
 
 <script type="module">
@@ -113,9 +143,16 @@ const cv = document.getElementById('cv');
 const ctx = cv.getContext('2d');
 let scale = 0.5;
 let panX = 0, panY = 0;
-let dragging = null; // { curveIndex, point:'p1'|'cp'|'p2' } or 'shooter' or 'pan'
+let dragging = null; // { curveIndex, point:'p1'|'cp'|'p2' } or 'shooter' or 'pan' or 'refImage'
 let dragStart = null;
 const SNAP_DISTANCE = 15;
+
+// ─── Reference image state ─────────────────────────────────────────
+let refImage = null;       // HTMLImageElement
+let refImgX = 0;          // position in game coords
+let refImgY = 0;
+let refImgScale = 1;      // additional scale factor on top of canvas scale
+let refOpacity = 0.4;     // 0-1
 
 // ─── Quadratic Bezier sampling ──────────────────────────────────────
 function sampleQuadraticBezier(p1, cp, p2, numSamples) {
@@ -180,6 +217,16 @@ function render() {
   glow.addColorStop(1, "rgba(233, 192, 98, 0)");
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+  // Reference image overlay (rendered below curves, above background)
+  if (refImage) {
+    ctx.save();
+    ctx.globalAlpha = refOpacity;
+    ctx.translate(refImgX, refImgY);
+    ctx.scale(refImgScale, refImgScale);
+    ctx.drawImage(refImage, 0, 0);
+    ctx.restore();
+  }
 
   // Subtle grid overlay (for reference, less prominent than before)
   ctx.strokeStyle = 'rgba(42, 52, 68, 0.12)';
@@ -434,6 +481,13 @@ cv.addEventListener('mousedown', e => {
     e.preventDefault();
     return;
   }
+  // Alt+click to drag reference image
+  if (e.altKey && refImage) {
+    dragging = 'refImage';
+    dragStart = { x: e.offsetX, y: e.offsetY, refImgX, refImgY };
+    e.preventDefault();
+    return;
+  }
   const g = screenToGame(e.offsetX, e.offsetY);
   const handle = findHandle(g.x, g.y);
   if (handle) {
@@ -453,6 +507,15 @@ cv.addEventListener('mousemove', e => {
   if (dragging === 'pan') {
     panX = dragStart.panX + (e.offsetX - dragStart.x);
     panY = dragStart.panY + (e.offsetY - dragStart.y);
+    render();
+    return;
+  }
+
+  if (dragging === 'refImage') {
+    const dx = (e.offsetX - dragStart.x) / scale;
+    const dy = (e.offsetY - dragStart.y) / scale;
+    refImgX = dragStart.refImgX + dx;
+    refImgY = dragStart.refImgY + dy;
     render();
     return;
   }
@@ -714,6 +777,68 @@ window.exportLevel = function() {
   navigator.clipboard.writeText(JSON.stringify(pointsArr, null, 2)).then(() => {
     alert(`已复制第${currentLevel+1}关控制点数组到剪贴板！\n\n共 ${pointsArr.length} 个点，${level.curves.length} 段曲线`);
   });
+};
+
+// ─── Reference image ────────────────────────────────────────────────
+window.uploadRefImage = function() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.onchange = async () => {
+    const file = input.files[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      refImage = img;
+      // Default: fit image into game area, centered
+      const scaleX = GAME_WIDTH / img.naturalWidth;
+      const scaleY = GAME_HEIGHT / img.naturalHeight;
+      refImgScale = Math.min(scaleX, scaleY);
+      refImgX = (GAME_WIDTH - img.naturalWidth * refImgScale) / 2;
+      refImgY = (GAME_HEIGHT - img.naturalHeight * refImgScale) / 2;
+      // Update UI
+      document.getElementById('refScale').value = Math.round(refImgScale * 100);
+      document.getElementById('refScaleVal').textContent = Math.round(refImgScale * 100) + '%';
+      document.getElementById('refRemoveBtn').disabled = false;
+      document.getElementById('refResetBtn').disabled = false;
+      render();
+    };
+    img.src = url;
+  };
+  input.click();
+};
+
+window.removeRefImage = function() {
+  refImage = null;
+  refImgX = 0;
+  refImgY = 0;
+  refImgScale = 1;
+  document.getElementById('refRemoveBtn').disabled = true;
+  document.getElementById('refResetBtn').disabled = true;
+  render();
+};
+
+window.updateRefSettings = function() {
+  const opVal = Number(document.getElementById('refOpacity').value);
+  const scVal = Number(document.getElementById('refScale').value);
+  refOpacity = opVal / 100;
+  refImgScale = scVal / 100;
+  document.getElementById('refOpacityVal').textContent = opVal + '%';
+  document.getElementById('refScaleVal').textContent = scVal + '%';
+  render();
+};
+
+window.resetRefPos = function() {
+  if (!refImage) return;
+  const scaleX = GAME_WIDTH / refImage.naturalWidth;
+  const scaleY = GAME_HEIGHT / refImage.naturalHeight;
+  refImgScale = Math.min(scaleX, scaleY);
+  refImgX = (GAME_WIDTH - refImage.naturalWidth * refImgScale) / 2;
+  refImgY = (GAME_HEIGHT - refImage.naturalHeight * refImgScale) / 2;
+  document.getElementById('refScale').value = Math.round(refImgScale * 100);
+  document.getElementById('refScaleVal').textContent = Math.round(refImgScale * 100) + '%';
+  render();
 };
 
 // ─── Canvas setup ───────────────────────────────────────────────────
