@@ -613,19 +613,16 @@ function drawTrack(game, ctx) {
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
-  // Keep the track visually simple: one soft carved shadow, one stone groove
-  // body, and one thin inner crease. Too many stacked strokes start reading
-  // as UI outlines instead of a channel cut into the slab.
   ctx.strokeStyle = "rgba(18, 22, 28, 0.14)";
-  ctx.lineWidth = 30;
+  ctx.lineWidth = 16;
   strokePath(game, ctx);
 
   ctx.strokeStyle = "rgba(111, 121, 130, 0.92)";
-  ctx.lineWidth = 20;
+  ctx.lineWidth = 10;
   strokePath(game, ctx);
 
   ctx.strokeStyle = "rgba(60, 70, 78, 0.34)";
-  ctx.lineWidth = 8;
+  ctx.lineWidth = 4;
   strokePath(game, ctx);
 
   ctx.restore();
