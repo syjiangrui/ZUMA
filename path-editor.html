@@ -80,7 +80,7 @@ body{background:#0e1218;color:#ddd;font-family:-apple-system,sans-serif;display:
 </div>
 
 <script type="module">
-import { GAME_WIDTH, GAME_HEIGHT, TAU } from './config.js';
+import { GAME_WIDTH, GAME_HEIGHT, TAU, BALL_SPACING } from './config.js';
 
 // ─── Color palette for curve segments ───────────────────────────────
 const CURVE_COLORS = [
@@ -93,13 +93,15 @@ const CURVE_COLORS = [
 ];
 
 // ─── Data model ─────────────────────────────────────────────────────
-// Each level: { name, shooterPos:{x,y}, curves:[{p1, cp, p2}, ...] }
+// Each level: { name, shooterPos:{x,y}, curves:[{p1, cp, p2}, ...], _chainCount }
+const CHAIN_COUNTS = [20, 23, 27, 30, 32, 35, 38, 42];
 const LEVELS = [];
 for (let i = 0; i < 8; i++) {
   LEVELS.push({
     name: `第${i+1}关`,
     shooterPos: { x: Math.round(GAME_WIDTH * 0.5), y: Math.round(GAME_HEIGHT * 0.82) },
     curves: [],
+    _chainCount: CHAIN_COUNTS[i],
   });
 }
 
@@ -144,7 +146,9 @@ function curvesToPointsArray(curves) {
 
 // ─── Render ─────────────────────────────────────────────────────────
 function render() {
-  const w = cv.width, h = cv.height;
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.width / dpr, h = cv.height / dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = '#080c10';
   ctx.fillRect(0, 0, w, h);
@@ -153,8 +157,31 @@ function render() {
   ctx.translate(panX, panY);
   ctx.scale(scale, scale);
 
-  // Grid
-  ctx.strokeStyle = 'rgba(42, 52, 68, 0.25)';
+  // Game-realistic background (matches render.js drawBackground)
+  const canopy = ctx.createLinearGradient(0, 0, 0, 176);
+  canopy.addColorStop(0, "#17383e");
+  canopy.addColorStop(0.55, "#10272d");
+  canopy.addColorStop(1, "#0a1519");
+  ctx.fillStyle = canopy;
+  ctx.fillRect(0, 0, GAME_WIDTH, 176);
+
+  const slab = ctx.createLinearGradient(0, 118, 0, GAME_HEIGHT);
+  slab.addColorStop(0, "#7f8990");
+  slab.addColorStop(0.48, "#6e7880");
+  slab.addColorStop(1, "#5b646d");
+  ctx.fillStyle = slab;
+  ctx.fillRect(0, 108, GAME_WIDTH, GAME_HEIGHT - 108);
+
+  // Shooter glow
+  const shGlow = LEVELS[currentLevel].shooterPos;
+  const glow = ctx.createRadialGradient(shGlow.x + 22, 118, 14, shGlow.x + 22, 118, 268);
+  glow.addColorStop(0, "rgba(233, 192, 98, 0.18)");
+  glow.addColorStop(1, "rgba(233, 192, 98, 0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+  // Subtle grid overlay (for reference, less prominent than before)
+  ctx.strokeStyle = 'rgba(42, 52, 68, 0.12)';
   ctx.lineWidth = 0.5 / scale;
   for (let x = 0; x <= GAME_WIDTH; x += 50) {
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, GAME_HEIGHT); ctx.stroke();
@@ -168,25 +195,30 @@ function render() {
   ctx.lineWidth = 1 / scale;
   ctx.strokeRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-  // HUD top zone (120px) — shaded overlay
-  ctx.fillStyle = 'rgba(20, 26, 36, 0.45)';
+  // HUD top zone (120px) — deeper overlay so it's clear this area is obstructed
+  ctx.fillStyle = 'rgba(10, 14, 20, 0.65)';
   ctx.fillRect(0, 0, GAME_WIDTH, 120);
-  ctx.strokeStyle = 'rgba(80, 96, 112, 0.4)';
-  ctx.lineWidth = 1 / scale;
+  ctx.strokeStyle = 'rgba(160, 170, 180, 0.6)';
+  ctx.lineWidth = 2 / scale;
   ctx.beginPath(); ctx.moveTo(0, 120); ctx.lineTo(GAME_WIDTH, 120); ctx.stroke();
-  // HUD label
-  ctx.fillStyle = 'rgba(100, 116, 132, 0.6)';
-  ctx.font = `${11/scale}px -apple-system, sans-serif`;
-  ctx.fillText('HUD', 8, 112);
+  // HUD label — centered, larger
+  ctx.fillStyle = 'rgba(160, 170, 180, 0.7)';
+  ctx.font = `bold ${14/scale}px -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('HUD 区域', GAME_WIDTH / 2, 65);
+  ctx.textAlign = 'start';
 
-  // Bottom button zone
-  ctx.fillStyle = 'rgba(20, 26, 36, 0.3)';
-  ctx.fillRect(16, GAME_HEIGHT - 54, 80, 36);
-
-  // Safe play area label
-  ctx.fillStyle = 'rgba(100, 116, 132, 0.35)';
-  ctx.font = `${10/scale}px -apple-system, sans-serif`;
-  ctx.fillText(`游戏区域 ${GAME_WIDTH}×${GAME_HEIGHT}`, 8, GAME_HEIGHT - 62);
+  // Bottom button zone (70px) — matches actual game button area
+  ctx.fillStyle = 'rgba(10, 14, 20, 0.5)';
+  ctx.fillRect(0, GAME_HEIGHT - 70, GAME_WIDTH, 70);
+  ctx.strokeStyle = 'rgba(160, 170, 180, 0.4)';
+  ctx.lineWidth = 1 / scale;
+  ctx.beginPath(); ctx.moveTo(0, GAME_HEIGHT - 70); ctx.lineTo(GAME_WIDTH, GAME_HEIGHT - 70); ctx.stroke();
+  ctx.fillStyle = 'rgba(160, 170, 180, 0.5)';
+  ctx.font = `bold ${12/scale}px -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('按钮区域', GAME_WIDTH / 2, GAME_HEIGHT - 35);
+  ctx.textAlign = 'start';
 
   const level = LEVELS[currentLevel];
 
@@ -228,37 +260,85 @@ function render() {
     drawControlPoint(c.cp.x, c.cp.y, col, `C${i + 1}`, isSel);
   }
 
-  // Start point marker (green)
+  // Start point marker (green) + entry arrow
   if (level.curves.length > 0) {
     const first = level.curves[0].p1;
-    ctx.beginPath(); ctx.arc(first.x, first.y, 10, 0, TAU);
-    ctx.fillStyle = 'rgba(108, 200, 112, 0.2)'; ctx.fill();
+    ctx.beginPath(); ctx.arc(first.x, first.y, 12, 0, TAU);
+    ctx.fillStyle = 'rgba(108, 200, 112, 0.25)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(108, 200, 112, 0.6)'; ctx.lineWidth = 1.5/scale; ctx.stroke();
+    // Entry arrow (from right side)
+    ctx.strokeStyle = 'rgba(108, 200, 112, 0.6)'; ctx.lineWidth = 2/scale;
+    const arrX = Math.min(first.x + 50, GAME_WIDTH + 40);
+    ctx.beginPath(); ctx.moveTo(arrX, first.y); ctx.lineTo(first.x + 16, first.y); ctx.stroke();
+    // Arrow head
+    ctx.beginPath();
+    ctx.moveTo(first.x + 16, first.y);
+    ctx.lineTo(first.x + 24, first.y - 5);
+    ctx.moveTo(first.x + 16, first.y);
+    ctx.lineTo(first.x + 24, first.y + 5);
+    ctx.stroke();
+    // Label
+    ctx.fillStyle = 'rgba(108, 200, 112, 0.8)';
+    ctx.font = `bold ${11/scale}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('入口', Math.min(first.x + 55, GAME_WIDTH - 20), first.y - 10);
+    ctx.textAlign = 'start';
   }
 
-  // End point marker (red)
+  // End point marker (red) + goal label
   if (level.curves.length > 0) {
     const last = level.curves[level.curves.length - 1].p2;
-    ctx.beginPath(); ctx.arc(last.x, last.y, 10, 0, TAU);
-    ctx.fillStyle = 'rgba(212, 80, 64, 0.2)'; ctx.fill();
+    ctx.beginPath(); ctx.arc(last.x, last.y, 12, 0, TAU);
+    ctx.fillStyle = 'rgba(212, 80, 64, 0.25)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(212, 80, 64, 0.6)'; ctx.lineWidth = 1.5/scale; ctx.stroke();
+    // Label
+    ctx.fillStyle = 'rgba(212, 80, 64, 0.8)';
+    ctx.font = `bold ${11/scale}px -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('终点', last.x, last.y - 18);
+    ctx.textAlign = 'start';
   }
 
-  // Shooter
+  // Shooter — larger zone matching actual frog size, with crosshair
   const sh = level.shooterPos;
+  // Outer zone (frog body ~50px radius)
+  ctx.beginPath(); ctx.arc(sh.x, sh.y, 50, 0, TAU);
+  ctx.fillStyle = 'rgba(233, 192, 98, 0.08)'; ctx.fill();
+  ctx.strokeStyle = 'rgba(233, 192, 98, 0.35)'; ctx.lineWidth = 1.5/scale; ctx.stroke();
+  // Inner aim zone
   ctx.beginPath(); ctx.arc(sh.x, sh.y, 30, 0, TAU);
-  ctx.fillStyle = 'rgba(233, 192, 98, 0.12)'; ctx.fill();
-  ctx.strokeStyle = 'rgba(233, 192, 98, 0.4)'; ctx.lineWidth = 2/scale; ctx.stroke();
+  ctx.strokeStyle = 'rgba(233, 192, 98, 0.2)'; ctx.lineWidth = 1/scale; ctx.stroke();
+  // Crosshair lines
+  ctx.strokeStyle = 'rgba(233, 192, 98, 0.25)'; ctx.lineWidth = 1/scale;
+  ctx.beginPath(); ctx.moveTo(sh.x - 20, sh.y); ctx.lineTo(sh.x + 20, sh.y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(sh.x, sh.y - 20); ctx.lineTo(sh.x, sh.y + 20); ctx.stroke();
+  // Center dot
   ctx.beginPath(); ctx.arc(sh.x, sh.y, 6, 0, TAU);
   ctx.fillStyle = '#f0d57a'; ctx.fill();
+  // Label
+  ctx.fillStyle = 'rgba(240, 213, 122, 0.7)';
+  ctx.font = `bold ${11/scale}px -apple-system, sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('射手', sh.x, sh.y + 40);
+  ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
 
-  // Path length info
+  // Path length info — with background bar for readability
   let pathLen = 0;
   for (const c of level.curves) {
     const pts = sampleQuadraticBezier(c.p1, c.cp, c.p2, 50);
     for (let i = 1; i < pts.length; i++) pathLen += Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y);
   }
-  ctx.fillStyle = 'rgba(138, 154, 170, 0.7)';
-  ctx.font = `${12/scale}px -apple-system, sans-serif`;
-  ctx.fillText(`路径长度: ${Math.round(pathLen)}px  |  曲线: ${level.curves.length}段`, 12, GAME_HEIGHT - 12);
+  const chainLen = (level._chainCount || 20) * BALL_SPACING;
+  const remaining = pathLen - chainLen;
+  const infoY = GAME_HEIGHT - 85;
+  // Background bar
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+  ctx.fillRect(0, infoY - 4, GAME_WIDTH, 18);
+  // Text
+  ctx.fillStyle = remaining < 0 ? 'rgba(212, 80, 64, 0.9)' : 'rgba(200, 215, 225, 0.85)';
+  ctx.font = `bold ${13/scale}px -apple-system, sans-serif`;
+  const pathInfo = `路径: ${Math.round(pathLen)}px  |  球链: ${Math.round(chainLen)}px  |  剩余: ${Math.round(remaining)}px  |  曲线: ${level.curves.length}段`;
+  ctx.fillText(pathInfo, 8, infoY + 8);
 
   ctx.restore();
 }
@@ -623,11 +703,16 @@ window.exportLevel = function() {
 // ─── Canvas setup ───────────────────────────────────────────────────
 function resizeCanvas() {
   const wrap = document.getElementById('canvas-wrap');
-  cv.width = wrap.clientWidth - 40;
-  cv.height = wrap.clientHeight - 40;
+  const dpr = window.devicePixelRatio || 1;
+  const w = wrap.clientWidth - 40;
+  const h = wrap.clientHeight - 40;
+  cv.width = w * dpr;
+  cv.height = h * dpr;
+  cv.style.width = w + 'px';
+  cv.style.height = h + 'px';
   // Center the game area in the canvas
-  panX = (cv.width - GAME_WIDTH * scale) / 2;
-  panY = (cv.height - GAME_HEIGHT * scale) / 2;
+  panX = (w - GAME_WIDTH * scale) / 2;
+  panY = (h - GAME_HEIGHT * scale) / 2;
   render();
 }
 
