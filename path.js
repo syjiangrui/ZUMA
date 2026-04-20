@@ -48,10 +48,24 @@ function finalizePath(sampled) {
 
   const totalPathLength = total;
 
+  // Build a smooth rendering path using Catmull-Rom interpolation between
+  // sampled points.  The original pathPoints (used for marble positioning)
+  // stay untouched — only the visual Path2D gets the extra smoothing.
+  const SMOOTH_SUBDIV = 4; // sub-steps between each pair of original samples
   const cachedTrackPath = new Path2D();
   cachedTrackPath.moveTo(pathPoints[0].x, pathPoints[0].y);
-  for (let i = 1; i < pathPoints.length; i += 1) {
-    cachedTrackPath.lineTo(pathPoints[i].x, pathPoints[i].y);
+
+  for (let i = 0; i < pathPoints.length - 1; i++) {
+    const p0 = pathPoints[Math.max(0, i - 1)];
+    const p1 = pathPoints[i];
+    const p2 = pathPoints[Math.min(pathPoints.length - 1, i + 1)];
+    const p3 = pathPoints[Math.min(pathPoints.length - 1, i + 2)];
+
+    for (let s = 1; s <= SMOOTH_SUBDIV; s++) {
+      const t = s / SMOOTH_SUBDIV;
+      const pt = catmullRom(p0, p1, p2, p3, t);
+      cachedTrackPath.lineTo(pt.x, pt.y);
+    }
   }
 
   return { pathPoints, totalPathLength, cachedTrackPath };
