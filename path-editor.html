@@ -17,6 +17,7 @@ body{background:#0e1218;color:#ddd;font-family:-apple-system,sans-serif;display:
 #toolbar{display:flex;gap:4px;padding:8px 16px;border-bottom:1px solid #2a3444;flex-wrap:wrap;align-items:center}
 .tool-btn{padding:5px 10px;border-radius:6px;border:1px solid #2a3444;background:#1a222e;color:#8a9aaa;cursor:pointer;font-size:12px;transition:all .15s}
 .tool-btn:hover{border-color:#4a5a6a;background:#222e3e}
+.tool-btn.active{color:#f0d57a;border-color:#f0d57a;background:#2a3a50}
 .tool-btn.danger{color:#d45040;border-color:#5a2a2a}
 .tool-btn.danger:hover{background:#3a1a1a;border-color:#d45040}
 #curve-list-wrap{flex:1;overflow-y:auto;padding:8px}
@@ -61,8 +62,19 @@ body{background:#0e1218;color:#ddd;font-family:-apple-system,sans-serif;display:
 
   <div id="toolbar">
     <button class="tool-btn" onclick="addCurve()">＋ 添加曲线</button>
+    <button class="tool-btn" id="brushBtn" onclick="toggleBrush()">✎ 笔刷</button>
+    <button class="tool-btn" onclick="smoothJoints()" title="温和模式：只把相邻段接头处的切线对齐，端点/段数不变">≈ 平滑接头</button>
+    <button class="tool-btn" onclick="refitPath()" title="全局重拟合：按当前平滑度重新采样整条路径，段数/位置都会变，但整体最顺滑">⟳ 重拟合</button>
     <button class="tool-btn danger" onclick="deleteCurve()">✕ 删除选中</button>
     <button class="tool-btn" onclick="clearAll()">清空</button>
+  </div>
+  <div id="brush-bar" style="display:none;padding:6px 16px;border-bottom:1px solid #2a3444;font-size:11px;color:#8a9aaa">
+    <div style="display:flex;align-items:center;gap:6px">
+      <label>平滑</label>
+      <input type="range" id="brushSmooth" min="1" max="8" value="4" style="flex:1;height:4px;accent-color:#f0d57a">
+      <span id="brushSmoothVal" style="min-width:24px;text-align:right;color:#8a9aaa;font-size:10px">4</span>
+    </div>
+    <div style="color:#3a4a5a;font-size:10px;margin-top:2px">笔刷模式：在空白处按住拖动画线，松手自动转贝塞尔段。起点靠近上一段终点会自动接续。</div>
   </div>
 
   <div id="curve-list-wrap">
@@ -106,7 +118,7 @@ body{background:#0e1218;color:#ddd;font-family:-apple-system,sans-serif;display:
 
 <div id="canvas-wrap">
   <canvas id="cv"></canvas>
-  <div id="hint">拖拽端点和控制点 | 端点接近时自动吸附对齐 | Ctrl+滚轮缩放 | 空格+拖拽/中键平移 | Alt+拖拽移动参考图</div>
+  <div id="hint">拖拽端点和控制点 | 端点接近时自动吸附对齐 | ✎ 笔刷模式直接作画 | Ctrl+滚轮缩放 | 空格+拖拽/中键平移 | Alt+拖拽移动参考图</div>
 </div>
 
 <script type="module">
@@ -143,10 +155,16 @@ const cv = document.getElementById('cv');
 const ctx = cv.getContext('2d');
 let scale = 0.5;
 let panX = 0, panY = 0;
-let dragging = null; // { curveIndex, point:'p1'|'cp'|'p2' } or 'shooter' or 'pan' or 'refImage'
+let dragging = null; // { curveIndex, point:'p1'|'cp'|'p2' } or 'shooter' or 'pan' or 'refImage' or 'brush'
 let dragStart = null;
 let spaceHeld = false;
 const SNAP_DISTANCE = 15;
+
+// ─── Brush mode state ───────────────────────────────────────────────
+let brushMode = false;
+let brushSamples = [];        // raw pointer trail in game coords (active stroke)
+const BRUSH_SAMPLE_MIN_DIST = 6;   // skip samples closer than this (px)
+const BRUSH_JOIN_DISTANCE = 18;    // snap first stroke point to last curve's p2 within this radius
 
 // ─── Reference image state ─────────────────────────────────────────
 let refImage = null;       // HTMLImageElement
@@ -167,6 +185,180 @@ function sampleQuadraticBezier(p1, cp, p2, numSamples) {
     });
   }
   return points;
+}
+
+// ─── Brush → Quadratic Bezier pipeline ──────────────────────────────
+// The raw pointer trail has three problems that a naive fit can't hide:
+// (1) non-uniform sampling (fast strokes give sparse points, slow strokes
+// dense ones), (2) hand jitter riding on top of the intended shape, and
+// (3) segment boundaries with mismatched tangents that show up as visible
+// corners. The pipeline below tackles them in order:
+//
+//   raw samples
+//     → arc-length resample (uniform spacing, kills speed bias)
+//     → moving average low-pass (strips jitter)
+//     → pick N+1 anchors uniformly along the smoothed polyline
+//         (N chosen from arc length + smoothness slider)
+//     → estimate a single tangent per anchor using neighboring chords
+//     → for each segment (A,B): control point = intersection of the two
+//       tangent rays, which guarantees G1 continuity at shared anchors
+//       because neighbors reuse the same tangent vectors
+//
+// Result: no corners at joints, curves follow the hand without jitter,
+// segment count scales with stroke length.
+
+function resampleByArcLength(points, step) {
+  if (points.length < 2) return points.slice();
+  const out = [{ x: points[0].x, y: points[0].y }];
+  let prev = points[0];
+  let carry = 0;
+  for (let i = 1; i < points.length; i++) {
+    let curr = points[i];
+    let segLen = Math.hypot(curr.x - prev.x, curr.y - prev.y);
+    while (carry + segLen >= step) {
+      const t = (step - carry) / segLen;
+      const nx = prev.x + (curr.x - prev.x) * t;
+      const ny = prev.y + (curr.y - prev.y) * t;
+      out.push({ x: nx, y: ny });
+      prev = { x: nx, y: ny };
+      segLen = Math.hypot(curr.x - prev.x, curr.y - prev.y);
+      carry = 0;
+    }
+    carry += segLen;
+    prev = curr;
+  }
+  // Keep the final sample so the stroke endpoint doesn't drift.
+  const tail = out[out.length - 1];
+  const last = points[points.length - 1];
+  if (Math.hypot(last.x - tail.x, last.y - tail.y) > step * 0.25) {
+    out.push({ x: last.x, y: last.y });
+  }
+  return out;
+}
+
+// Simple symmetric 3-tap moving average, repeated `passes` times. The two
+// boundary points are held fixed so the stroke endpoints stay anchored.
+function smoothPolyline(points, passes) {
+  let a = points.map(p => ({ x: p.x, y: p.y }));
+  for (let pass = 0; pass < passes; pass++) {
+    const b = a.map(p => ({ x: p.x, y: p.y }));
+    for (let i = 1; i < a.length - 1; i++) {
+      b[i].x = (a[i - 1].x + a[i].x * 2 + a[i + 1].x) * 0.25;
+      b[i].y = (a[i - 1].y + a[i].y * 2 + a[i + 1].y) * 0.25;
+    }
+    a = b;
+  }
+  return a;
+}
+
+// Pick N+1 anchors uniformly spaced along the polyline's arc length.
+// Returns anchors + per-anchor tangent unit vectors.
+function pickAnchorsWithTangents(points, n) {
+  // Cumulative arc lengths.
+  const cum = [0];
+  for (let i = 1; i < points.length; i++) {
+    cum.push(cum[i - 1] + Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y));
+  }
+  const total = cum[cum.length - 1];
+  const anchors = [];
+  if (total === 0) {
+    return { anchors: [points[0]], tangents: [{ x: 1, y: 0 }] };
+  }
+  // Walk the polyline, emitting an anchor every total/n units.
+  let j = 0;
+  for (let k = 0; k <= n; k++) {
+    const target = (total * k) / n;
+    while (j < cum.length - 2 && cum[j + 1] < target) j++;
+    const segLen = cum[j + 1] - cum[j] || 1;
+    const t = (target - cum[j]) / segLen;
+    anchors.push({
+      x: points[j].x + (points[j + 1].x - points[j].x) * t,
+      y: points[j].y + (points[j + 1].y - points[j].y) * t,
+    });
+  }
+  // Tangent per anchor: normalized direction from previous anchor to next.
+  // This is the canonical Catmull-Rom-style tangent and gives smooth shared
+  // directions at segment boundaries.
+  const tangents = anchors.map((p, i) => {
+    const prev = anchors[Math.max(0, i - 1)];
+    const next = anchors[Math.min(anchors.length - 1, i + 1)];
+    const dx = next.x - prev.x, dy = next.y - prev.y;
+    const len = Math.hypot(dx, dy) || 1;
+    return { x: dx / len, y: dy / len };
+  });
+  return { anchors, tangents };
+}
+
+// Given two anchors A, B and their outward tangent unit vectors tA (leaving
+// A toward B) and tB (arriving at B from A), return the control point
+// where the two tangent rays meet. This is the unique quadratic Bezier
+// whose endpoint tangents match both anchors — the building block for
+// G1-continuous segment chains.
+//
+// Falls back to the segment midpoint when the rays are nearly parallel
+// (straight-ish segment, a linear reduction is perfectly fine there).
+function tangentIntersectionCp(A, tA, B, tB) {
+  // Solve A + s * tA = B - u * tB for scalars s, u.
+  // 2x2 system: [tA.x  tB.x][s] = [B.x - A.x]
+  //             [tA.y  tB.y][u]   [B.y - A.y]
+  const det = tA.x * tB.y - tA.y * tB.x;
+  const rx = B.x - A.x, ry = B.y - A.y;
+  if (Math.abs(det) < 1e-4) {
+    return { x: (A.x + B.x) * 0.5, y: (A.y + B.y) * 0.5 };
+  }
+  const s = (rx * tB.y - ry * tB.x) / det;
+  // Guard against huge extrapolations when the tangents nearly align —
+  // clamp cp offset to segment length so exotic strokes don't balloon.
+  const segLen = Math.hypot(rx, ry);
+  const clamped = Math.max(-segLen * 1.5, Math.min(segLen * 1.5, s));
+  return { x: A.x + tA.x * clamped, y: A.y + tA.y * clamped };
+}
+
+// Entry point called from finalizeBrushStroke. `smoothness` is the slider
+// value 1..8; bigger means longer segments and more aggressive smoothing.
+function fitBrushStrokeToCurves(samples, smoothness) {
+  if (samples.length < 2) return [];
+
+  // 1. Arc-length resample — kills the fast-vs-slow sampling bias.
+  const RESAMPLE_STEP = 4;
+  const uniform = resampleByArcLength(samples, RESAMPLE_STEP);
+  if (uniform.length < 2) return [];
+
+  // 2. Low-pass moving average — strips hand jitter. Pass count scales
+  // with smoothness; even the minimum setting applies one pass so the
+  // result never shows raw jitter.
+  const passes = Math.max(1, Math.round(smoothness * 0.8));
+  const smoothed = smoothPolyline(uniform, passes);
+
+  // 3. Decide segment count from arc length. Longer strokes deserve more
+  // segments; smoothness expands target segment length, so higher slider
+  // = fewer, gentler arcs.
+  let total = 0;
+  for (let i = 1; i < smoothed.length; i++) {
+    total += Math.hypot(smoothed[i].x - smoothed[i - 1].x, smoothed[i].y - smoothed[i - 1].y);
+  }
+  const targetSegLen = 50 + smoothness * 18;   // ~68 .. ~194 px
+  const n = Math.max(1, Math.round(total / targetSegLen));
+
+  // 4+5. Pick anchors and per-anchor tangents.
+  const { anchors, tangents } = pickAnchorsWithTangents(smoothed, n);
+  if (anchors.length < 2) return [];
+
+  // 6. Build G1-continuous quadratic segments. Neighboring segments share
+  // the same anchor AND tangent vector, so the joint is automatically
+  // smooth — no extra mirroring needed.
+  const curves = [];
+  for (let i = 0; i < anchors.length - 1; i++) {
+    const A = anchors[i];
+    const B = anchors[i + 1];
+    const cp = tangentIntersectionCp(A, tangents[i], B, tangents[i + 1]);
+    curves.push({
+      p1: { x: Math.round(A.x), y: Math.round(A.y) },
+      cp: { x: Math.round(cp.x), y: Math.round(cp.y) },
+      p2: { x: Math.round(B.x), y: Math.round(B.y) },
+    });
+  }
+  return curves;
 }
 
 // ─── Export: curves → control point array ───────────────────────────
@@ -403,6 +595,29 @@ function render() {
   ctx.fillText('射手', sh.x, sh.y + 40);
   ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
 
+  // Brush preview — live trail while the user is drawing a freehand stroke.
+  // We render the raw sample polyline so what you see follows the pointer
+  // exactly; the simplification + Bezier fit only happens on mouseup.
+  if (brushMode && brushSamples.length >= 2) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(240, 213, 122, 0.9)';
+    ctx.lineWidth = 3 / scale;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(brushSamples[0].x, brushSamples[0].y);
+    for (let i = 1; i < brushSamples.length; i++) {
+      ctx.lineTo(brushSamples[i].x, brushSamples[i].y);
+    }
+    ctx.stroke();
+    // Start dot — so the user can see where the stroke anchored
+    ctx.beginPath();
+    ctx.arc(brushSamples[0].x, brushSamples[0].y, 4 / scale, 0, TAU);
+    ctx.fillStyle = 'rgba(240, 213, 122, 0.8)';
+    ctx.fill();
+    ctx.restore();
+  }
+
   // Path length info — with background bar for readability
   let pathLen = 0;
   for (const c of level.curves) {
@@ -537,11 +752,18 @@ function mirrorControlPoint(junctionPt, sourceCp, targetCp) {
 }
 
 function updateCanvasCursor() {
-  cv.style.cursor = spaceHeld ? (dragging === 'pan' ? 'grabbing' : 'grab') : 'crosshair';
+  if (spaceHeld) {
+    cv.style.cursor = dragging === 'pan' ? 'grabbing' : 'grab';
+  } else if (brushMode) {
+    cv.style.cursor = 'crosshair';
+  } else {
+    cv.style.cursor = 'crosshair';
+  }
 }
 
 window.addEventListener('keydown', e => {
   if (e.code === 'Space' && !e.repeat) { spaceHeld = true; updateCanvasCursor(); }
+  if (e.code === 'Escape' && brushMode) { window.toggleBrush(); }
 });
 window.addEventListener('keyup', e => {
   if (e.code === 'Space') { spaceHeld = false; updateCanvasCursor(); }
@@ -560,6 +782,16 @@ cv.addEventListener('mousedown', e => {
     dragging = 'refImage';
     dragStart = { x: e.offsetX, y: e.offsetY, refImgX, refImgY };
     e.preventDefault();
+    return;
+  }
+  // Brush mode: start a freehand stroke. Ignores handle hits so an
+  // accidental pass over an existing endpoint doesn't hijack the stroke.
+  if (brushMode && e.button === 0) {
+    const g = screenToGame(e.offsetX, e.offsetY);
+    dragging = 'brush';
+    brushSamples = [{ x: g.x, y: g.y }];
+    e.preventDefault();
+    render();
     return;
   }
   const g = screenToGame(e.offsetX, e.offsetY);
@@ -591,6 +823,16 @@ cv.addEventListener('mousemove', e => {
     refImgX = dragStart.refImgX + dx;
     refImgY = dragStart.refImgY + dy;
     render();
+    return;
+  }
+
+  if (dragging === 'brush') {
+    const last = brushSamples[brushSamples.length - 1];
+    const dx = g.x - last.x, dy = g.y - last.y;
+    if (dx * dx + dy * dy >= BRUSH_SAMPLE_MIN_DIST * BRUSH_SAMPLE_MIN_DIST) {
+      brushSamples.push({ x: g.x, y: g.y });
+      render();
+    }
     return;
   }
 
@@ -649,8 +891,56 @@ cv.addEventListener('mousemove', e => {
   render();
 });
 
-cv.addEventListener('mouseup', () => { dragging = null; updateCanvasCursor(); });
-cv.addEventListener('mouseleave', () => { dragging = null; updateCanvasCursor(); });
+cv.addEventListener('mouseup', () => {
+  if (dragging === 'brush') {
+    finalizeBrushStroke();
+  }
+  dragging = null;
+  updateCanvasCursor();
+});
+cv.addEventListener('mouseleave', () => {
+  if (dragging === 'brush') {
+    finalizeBrushStroke();
+  }
+  dragging = null;
+  updateCanvasCursor();
+});
+
+// Convert the in-progress brush trail into quadratic Bezier curves and
+// append them to the current level. If the stroke's first sample is close
+// to the last curve's p2, the stroke's start point snaps to it so the
+// editor's existing join-detection picks up G1 continuity automatically.
+function finalizeBrushStroke() {
+  const samples = brushSamples;
+  brushSamples = [];
+  if (samples.length < 2) {
+    render();
+    return;
+  }
+  const level = LEVELS[currentLevel];
+
+  // Snap stroke start to the last curve's p2 if nearby, so new strokes
+  // continue naturally from existing paths.
+  if (level.curves.length > 0) {
+    const lastP2 = level.curves[level.curves.length - 1].p2;
+    const dx = samples[0].x - lastP2.x, dy = samples[0].y - lastP2.y;
+    if (Math.hypot(dx, dy) <= BRUSH_JOIN_DISTANCE) {
+      samples[0] = { x: lastP2.x, y: lastP2.y };
+    }
+  }
+
+  const smoothness = Number(document.getElementById('brushSmooth').value);
+  const newCurves = fitBrushStrokeToCurves(samples, smoothness);
+  if (newCurves.length === 0) {
+    render();
+    return;
+  }
+
+  level.curves.push(...newCurves);
+  selectedCurve = level.curves.length - 1;
+  buildCurveList();
+  render();
+}
 
 cv.addEventListener('wheel', e => {
   e.preventDefault();
@@ -716,6 +1006,144 @@ window.clearAll = function() {
   buildCurveList();
   render();
 };
+
+// Walk the curve chain and enforce G1 continuity at every joint where
+// one curve's p2 coincides (within SNAP_DISTANCE) with the next curve's
+// p1. At each such joint we replace the two neighboring control points
+// with ones that share a common tangent direction, while preserving each
+// side's original "handle length" (distance from joint to its cp) so the
+// overall shape stays close to the author's intent — only the kink at
+// the joint disappears.
+window.smoothJoints = function() {
+  const level = LEVELS[currentLevel];
+  if (level.curves.length < 2) return;
+
+  // Snap tolerance reuses the same threshold as drag-snapping so manual
+  // and brush-generated chains behave the same.
+  const tol = SNAP_DISTANCE / scale;
+  let fixed = 0;
+
+  for (let i = 0; i < level.curves.length - 1; i++) {
+    const a = level.curves[i];      // incoming segment (ends at a.p2)
+    const b = level.curves[i + 1];  // outgoing segment (starts at b.p1)
+
+    // Only treat as a joint if endpoints already coincide.
+    const dx = a.p2.x - b.p1.x, dy = a.p2.y - b.p1.y;
+    if (Math.hypot(dx, dy) > tol) continue;
+
+    // Snap the two endpoints exactly, using their midpoint. This makes
+    // further edits stable (no drift from repeated smoothing passes).
+    const jx = (a.p2.x + b.p1.x) * 0.5;
+    const jy = (a.p2.y + b.p1.y) * 0.5;
+    a.p2.x = Math.round(jx); a.p2.y = Math.round(jy);
+    b.p1.x = Math.round(jx); b.p1.y = Math.round(jy);
+
+    // Incoming direction at joint: from a.cp toward a.p2 (the tangent at
+    // a's endpoint). Outgoing direction: from b.p1 toward b.cp. Average
+    // their unit vectors to get the shared tangent.
+    let inX = jx - a.cp.x, inY = jy - a.cp.y;
+    let outX = b.cp.x - jx, outY = b.cp.y - jy;
+    const inLen = Math.hypot(inX, inY) || 1;
+    const outLen = Math.hypot(outX, outY) || 1;
+    inX /= inLen; inY /= inLen;
+    outX /= outLen; outY /= outLen;
+
+    let tx = inX + outX, ty = inY + outY;
+    let tLen = Math.hypot(tx, ty);
+    // Degenerate case: incoming and outgoing tangents cancel (a cusp).
+    // Fall back to the outgoing direction so at least one side is happy.
+    if (tLen < 1e-4) { tx = outX; ty = outY; tLen = 1; }
+    tx /= tLen; ty /= tLen;
+
+    // Preserve each side's handle length so we don't stretch/shrink the
+    // curves — only their direction at the joint changes.
+    a.cp.x = Math.round(jx - tx * inLen);
+    a.cp.y = Math.round(jy - ty * inLen);
+    b.cp.x = Math.round(jx + tx * outLen);
+    b.cp.y = Math.round(jy + ty * outLen);
+    fixed++;
+  }
+
+  if (fixed > 0) {
+    buildCurveList();
+    render();
+  }
+};
+
+// Global refit: resample the entire curve chain into a dense polyline,
+// then push it back through the same fitter the brush uses. The result
+// is a fresh chain of quadratics with uniformly spaced anchors, globally
+// estimated tangents, and tangent-intersection control points — every
+// joint is automatically G1, segment lengths are even, and the visible
+// "bumps" from uneven handle lengths in the old chain disappear.
+//
+// Tradeoffs vs the per-joint smoother: this changes segment count,
+// anchor positions, and selection index. It's the right tool when the
+// path's shape is close to what you want but the individual segments
+// feel choppy; use the gentler smoothJoints when you want to preserve
+// current anchors exactly.
+window.refitPath = function() {
+  const level = LEVELS[currentLevel];
+  if (level.curves.length < 1) return;
+
+  // Only consider contiguous runs — segments that actually chain p2→p1
+  // form one polyline, and gaps start a new polyline. This way an author
+  // who drew two disjoint arcs doesn't have them fused into one snake.
+  const tol = SNAP_DISTANCE / scale;
+  const runs = [[level.curves[0]]];
+  for (let i = 1; i < level.curves.length; i++) {
+    const prev = level.curves[i - 1];
+    const curr = level.curves[i];
+    const dx = prev.p2.x - curr.p1.x, dy = prev.p2.y - curr.p1.y;
+    if (Math.hypot(dx, dy) <= tol) {
+      runs[runs.length - 1].push(curr);
+    } else {
+      runs.push([curr]);
+    }
+  }
+
+  // Dense sample each run into a polyline, then re-fit via the shared
+  // brush pipeline. Sampling density matches what finalizePath uses on
+  // the game side, so the editor preview matches runtime geometry.
+  const smoothness = Number(document.getElementById('brushSmooth').value);
+  const newCurves = [];
+  for (const run of runs) {
+    const polyline = [];
+    for (let i = 0; i < run.length; i++) {
+      const c = run[i];
+      const pts = sampleQuadraticBezier(c.p1, c.cp, c.p2, 40);
+      // Drop the first point on every segment after the first to avoid
+      // duplicating the shared joint vertex.
+      for (let k = (i === 0 ? 0 : 1); k < pts.length; k++) {
+        polyline.push(pts[k]);
+      }
+    }
+    if (polyline.length < 2) continue;
+    const fitted = fitBrushStrokeToCurves(polyline, smoothness);
+    if (fitted.length > 0) newCurves.push(...fitted);
+  }
+
+  if (newCurves.length === 0) return;
+  level.curves = newCurves;
+  selectedCurve = level.curves.length - 1;
+  buildCurveList();
+  render();
+};
+
+window.toggleBrush = function() {
+  brushMode = !brushMode;
+  document.getElementById('brushBtn').classList.toggle('active', brushMode);
+  document.getElementById('brush-bar').style.display = brushMode ? 'block' : 'none';
+  // Cancel any in-progress drag when switching modes
+  if (dragging === 'brush') brushSamples = [];
+  dragging = null;
+  updateCanvasCursor();
+  render();
+};
+
+document.getElementById('brushSmooth').addEventListener('input', e => {
+  document.getElementById('brushSmoothVal').textContent = e.target.value;
+});
 
 window.updateShooter = function() {
   const level = LEVELS[currentLevel];
