@@ -307,6 +307,40 @@ function render() {
     drawControlPoint(c.cp.x, c.cp.y, col, `C${i + 1}`, isSel);
   }
 
+  // Smoothness indicators at join points
+  for (let i = 0; i < level.curves.length - 1; i++) {
+    const cA = level.curves[i];
+    const cB = level.curves[i + 1];
+    // Check if p2 of curve i joins p1 of curve i+1
+    if (Math.hypot(cA.p2.x - cB.p1.x, cA.p2.y - cB.p1.y) < SNAP_DISTANCE / scale) {
+      const jx = cA.p2.x, jy = cA.p2.y;
+      // Check G1: cpA, junction, cpB should be collinear
+      const dxA = cA.cp.x - jx, dyA = cA.cp.y - jy;
+      const dxB = cB.cp.x - jx, dyB = cB.cp.y - jy;
+      const lenA = Math.hypot(dxA, dyA) || 1;
+      const lenB = Math.hypot(dxB, dyB) || 1;
+      // Dot product of normalized vectors; 1.0 = perfectly aligned
+      const dot = (dxA * dxB + dyA * dyB) / (lenA * lenB);
+      const isSmooth = dot < -0.95; // nearly opposite direction = collinear
+      // Draw indicator circle
+      ctx.beginPath(); ctx.arc(jx, jy, 8 / scale, 0, TAU);
+      if (isSmooth) {
+        ctx.fillStyle = 'rgba(108, 200, 112, 0.25)';
+        ctx.strokeStyle = 'rgba(108, 200, 112, 0.7)';
+      } else {
+        ctx.fillStyle = 'rgba(230, 160, 60, 0.2)';
+        ctx.strokeStyle = 'rgba(230, 160, 60, 0.6)';
+      }
+      ctx.fill(); ctx.lineWidth = 1.5 / scale; ctx.stroke();
+      // Small symbol inside
+      ctx.font = `bold ${9 / scale}px -apple-system, sans-serif`;
+      ctx.fillStyle = isSmooth ? 'rgba(108, 200, 112, 0.9)' : 'rgba(230, 160, 60, 0.8)';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(isSmooth ? '∿' : '∠', jx, jy);
+      ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+    }
+  }
+
   // Start point marker (green) + entry arrow
   if (level.curves.length > 0) {
     const first = level.curves[0].p1;
@@ -475,6 +509,33 @@ function findSnapTarget(curveIndex, pointType, gx, gy) {
   return bestPoint;
 }
 
+// Check if an endpoint of a curve is joined with an endpoint of another curve.
+// Returns { curveIndex, point } or null.
+function findJoinNeighbor(curveIndex, pointType) {
+  const level = LEVELS[currentLevel];
+  const c = level.curves[curveIndex];
+  const pt = c[pointType];
+  for (let i = 0; i < level.curves.length; i++) {
+    if (i === curveIndex) continue;
+    const other = level.curves[i];
+    for (const otherPt of ['p1', 'p2']) {
+      if (Math.hypot(pt.x - other[otherPt].x, pt.y - other[otherPt].y) < SNAP_DISTANCE / scale) {
+        return { curveIndex: i, point: otherPt };
+      }
+    }
+  }
+  return null;
+}
+
+// Mirror targetCp across junctionPt to be symmetric with sourceCp.
+// Ensures G1 continuity (collinear + equal distance).
+function mirrorControlPoint(junctionPt, sourceCp, targetCp) {
+  const dx = sourceCp.x - junctionPt.x;
+  const dy = sourceCp.y - junctionPt.y;
+  targetCp.x = Math.round(junctionPt.x - dx);
+  targetCp.y = Math.round(junctionPt.y - dy);
+}
+
 function updateCanvasCursor() {
   cv.style.cursor = spaceHeld ? (dragging === 'pan' ? 'grabbing' : 'grab') : 'crosshair';
 }
@@ -543,20 +604,47 @@ cv.addEventListener('mousemove', e => {
   } else if (dragging.type === 'curve') {
     const { index, point } = dragging;
     const c = level.curves[index];
+    const oldX = c[point].x, oldY = c[point].y;
     let newX = Math.round(g.x);
     let newY = Math.round(g.y);
 
-    // Snap: one-time position alignment (curves are independent)
     if (point === 'p1' || point === 'p2') {
       const snap = findSnapTarget(index, point, newX, newY);
       if (snap) {
         newX = snap.x;
         newY = snap.y;
       }
-    }
 
-    c[point].x = newX;
-    c[point].y = newY;
+      c[point].x = newX;
+      c[point].y = newY;
+
+      // Sync joined endpoints and auto-mirror control points for G1 continuity
+      const join = findJoinNeighbor(index, point);
+      if (join) {
+        const neighborCurve = level.curves[join.curveIndex];
+        // Sync endpoint position
+        neighborCurve[join.point].x = newX;
+        neighborCurve[join.point].y = newY;
+        // Mirror: current curve's cp → neighbor's cp across the junction
+        mirrorControlPoint(c[point], c.cp, neighborCurve.cp);
+      }
+    } else {
+      // Dragging control point (cp)
+      c.cp.x = newX;
+      c.cp.y = newY;
+
+      // Auto-mirror: check if p1 side is joined → mirror neighbor's cp across p1
+      const joinP1 = findJoinNeighbor(index, 'p1');
+      if (joinP1) {
+        mirrorControlPoint(c.p1, c.cp, level.curves[joinP1.curveIndex].cp);
+      }
+
+      // Check if p2 side is joined → mirror neighbor's cp across p2
+      const joinP2 = findJoinNeighbor(index, 'p2');
+      if (joinP2) {
+        mirrorControlPoint(c.p2, c.cp, level.curves[joinP2.curveIndex].cp);
+      }
+    }
   }
   render();
 });
