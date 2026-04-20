@@ -17,7 +17,7 @@ export const CHAIN_SPEED = 54;
 export const CHAIN_ENTRY_SPEED = 340;
 export const CHAIN_ENTRY_TAIL_S = -42;
 export const CHAIN_ENTRY_START_HEAD_S = -32;
-export const EXIT_GAP = 180;
+export const EXIT_GAP = 5;
 
 // Projectile tuning for both mouse and touch play.
 export const PROJECTILE_SPEED = 820;
