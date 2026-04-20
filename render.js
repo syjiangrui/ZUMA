@@ -1,5 +1,5 @@
 import {
-  GAME_WIDTH, GAME_HEIGHT, BALL_RADIUS,
+  GAME_WIDTH, GAME_HEIGHT, BALL_RADIUS, HUD_HEIGHT, BOTTOM_BUTTON_HEIGHT,
   AIM_GUIDE_LENGTH, TAU, BALL_PALETTES, TEMPLE_GLYPH_VARIANTS,
 } from './config.js';
 
@@ -513,7 +513,7 @@ function drawBackground(game, ctx) {
   slab.addColorStop(0.48, "#6e7880");
   slab.addColorStop(1, "#5b646d");
   ctx.fillStyle = slab;
-  ctx.fillRect(0, 108, GAME_WIDTH, GAME_HEIGHT - 108);
+  ctx.fillRect(0, HUD_HEIGHT, GAME_WIDTH, GAME_HEIGHT - HUD_HEIGHT);
 
   ctx.fillStyle = "rgba(255, 255, 255, 0.045)";
   for (let i = 0; i < 16; i += 1) {
@@ -656,6 +656,21 @@ function drawGoal(game, ctx) {
 }
 
 function drawChain(game, ctx) {
+  // Clip to the play area so any portion of a ball that crosses into the
+  // HUD / bottom-button strips is masked out (HUD panel isn't full-width,
+  // so we can't rely on it to occlude). This also gives a smooth "ball
+  // rolling out from behind the UI" reveal when the author places the path
+  // start inside a UI strip.
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(
+    0,
+    HUD_HEIGHT,
+    GAME_WIDTH,
+    GAME_HEIGHT - HUD_HEIGHT - BOTTOM_BUTTON_HEIGHT,
+  );
+  ctx.clip();
+
   // Only draw balls that are currently on the playable portion of the path.
   for (const ball of game.chain) {
     if (ball.s < 0 || ball.s > game.totalPathLength) {
@@ -674,6 +689,8 @@ function drawChain(game, ctx) {
       ball.impact,
     );
   }
+
+  ctx.restore();
 }
 
 // Optimized ball renderer. Static gradient layers (body, matte shade, worn
@@ -786,6 +803,18 @@ function drawProjectile(game, ctx) {
     return;
   }
 
+  // Mirror drawChain's play-area clip so a projectile passing through the
+  // HUD / bottom-button strips doesn't render on top of the UI.
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(
+    0,
+    HUD_HEIGHT,
+    GAME_WIDTH,
+    GAME_HEIGHT - HUD_HEIGHT - BOTTOM_BUTTON_HEIGHT,
+  );
+  ctx.clip();
+
   drawBall(
     game,
     ctx,
@@ -796,6 +825,8 @@ function drawProjectile(game, ctx) {
     game.projectile.rotation,
     0,
   );
+
+  ctx.restore();
 }
 
 function drawAimGuide(game, ctx) {
@@ -876,8 +907,9 @@ function drawOverlay(game, ctx) {
     game.hudPanelCache.height = 120;
     const hCtx = game.hudPanelCache.getContext("2d");
 
-    // Main HUD panel — matches scene stone slab
-    drawStonePanel(hCtx, 16, 14, 232, 92, 22, {
+    // Main HUD panel — matches scene stone slab. Extends down to y=120 so
+    // its bottom edge meets the play-area clip line (no hairline gap).
+    drawStonePanel(hCtx, 16, 14, 232, 106, 22, {
       top: "#7a8590",
       bottom: "#636e78",
       stroke: "rgba(180, 150, 80, 0.55)",
@@ -887,7 +919,7 @@ function drawOverlay(game, ctx) {
 
     // Stone speckle texture on main panel
     hCtx.save();
-    traceRoundedRect(hCtx, 18, 16, 228, 88, 20);
+    traceRoundedRect(hCtx, 18, 16, 228, 102, 20);
     hCtx.clip();
     hCtx.fillStyle = "rgba(255, 255, 255, 0.04)";
     for (let i = 0; i < 18; i += 1) {
@@ -913,9 +945,9 @@ function drawOverlay(game, ctx) {
 
     // Mayan zigzag trim along bottom edge of main panel
     hCtx.save();
-    traceRoundedRect(hCtx, 18, 16, 228, 88, 20);
+    traceRoundedRect(hCtx, 18, 16, 228, 102, 20);
     hCtx.clip();
-    const zigY = 100;
+    const zigY = 114;
     const zigH = 6;
     const zigW = 10;
     hCtx.fillStyle = "rgba(200, 170, 50, 0.22)";
@@ -1702,8 +1734,22 @@ function createStaticSceneCache(game) {
   cache.height = GAME_HEIGHT;
   const cCtx = cache.getContext("2d");
   drawBackground(game, cCtx);
+  // Clip the track + goal to the play area so any portion of an author-drawn
+  // path that strays into the HUD or bottom-button strips doesn't render on
+  // top of those UI zones. Background fills the whole canvas because the HUD
+  // panel draws over it later.
+  cCtx.save();
+  cCtx.beginPath();
+  cCtx.rect(
+    0,
+    HUD_HEIGHT,
+    GAME_WIDTH,
+    GAME_HEIGHT - HUD_HEIGHT - BOTTOM_BUTTON_HEIGHT,
+  );
+  cCtx.clip();
   drawTrack(game, cCtx);
   drawGoal(game, cCtx);
+  cCtx.restore();
   game.staticSceneCache = cache;
 }
 

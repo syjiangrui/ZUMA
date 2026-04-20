@@ -1,4 +1,18 @@
-import { GAME_WIDTH, TAU } from './config.js';
+import { GAME_WIDTH, GAME_HEIGHT, HUD_HEIGHT, BOTTOM_BUTTON_HEIGHT, TAU } from './config.js';
+
+// Returns true if the point already sits outside the playable area, meaning
+// the path author has already placed the start off-screen (or inside the HUD
+// / bottom-button strips, which are visually reserved for UI) and no
+// auto-generated entry segment is needed. The editor paints those strips as
+// obstructed zones, so the game treats them the same as being fully off-canvas.
+function isOffscreen(pt) {
+  return (
+    pt.x > GAME_WIDTH ||
+    pt.x < 0 ||
+    pt.y < HUD_HEIGHT ||
+    pt.y > GAME_HEIGHT - BOTTOM_BUTTON_HEIGHT
+  );
+}
 
 // Build the track geometry. pathType selects the curve family; pathParams
 // tunes it. Returns { pathPoints, totalPathLength, cachedTrackPath }.
@@ -93,8 +107,10 @@ function generateSpiralPath(shooterX, shooterY, params = {}) {
     });
   }
 
-  // Off-screen entry segment (cubic Bezier approach joining the spiral tangentially)
+  // Off-screen entry segment (cubic Bezier approach joining the spiral tangentially).
+  // Skip it entirely if the author already placed the start outside the play area.
   const joinPoint = spiralPoints[0];
+  if (isOffscreen(joinPoint)) return spiralPoints;
   const nextPoint = spiralPoints[1];
   const tangentLength = Math.hypot(
     nextPoint.x - joinPoint.x,
@@ -165,6 +181,7 @@ function generateOpenArcPath(shooterX, shooterY, params = {}) {
   }
 
   const joinPoint = arcPoints[0];
+  if (isOffscreen(joinPoint)) return arcPoints;
   const nextPoint = arcPoints[1];
   const tangentLength = Math.hypot(
     nextPoint.x - joinPoint.x,
@@ -220,12 +237,34 @@ function generateSerpentinePath(shooterX, shooterY, params = {}) {
   const samplePerCurve = 80;
 
   const sampled = [];
-  const entryY = topY - 20;
-  sampled.push({ x: GAME_WIDTH + 96, y: entryY });
-
   const firstCurveStartY = topY;
   const firstDirection = 1;
   const firstPeakX = centerX + firstDirection * amplitude;
+
+  // Build the main serpentine first — we need its start point to decide
+  // whether to prepend an off-screen entry segment.
+  const bodyStart = [];
+  for (let c = 0; c < curves; c++) {
+    const startY = topY + (c / curves) * verticalSpan;
+    const endY = topY + ((c + 1) / curves) * verticalSpan;
+    const direction = c % 2 === 0 ? 1 : -1;
+
+    for (let s = 0; s <= samplePerCurve; s++) {
+      const t = s / samplePerCurve;
+      const y = startY + (endY - startY) * t;
+      const x = centerX + direction * amplitude * Math.sin(t * Math.PI);
+      bodyStart.push({ x, y });
+    }
+  }
+
+  // Skip the auto entry segment entirely if the author placed the start
+  // outside the play area (HUD / bottom-button strips, or off-canvas).
+  if (bodyStart.length > 0 && isOffscreen(bodyStart[0])) {
+    return bodyStart;
+  }
+
+  const entryY = topY - 20;
+  sampled.push({ x: GAME_WIDTH + 96, y: entryY });
 
   // Smooth entry: curve from off-screen into the first sine wave
   const entrySteps = 40;
@@ -238,19 +277,7 @@ function generateSerpentinePath(shooterX, shooterY, params = {}) {
     sampled.push({ x, y });
   }
 
-  for (let c = 0; c < curves; c++) {
-    const startY = topY + (c / curves) * verticalSpan;
-    const endY = topY + ((c + 1) / curves) * verticalSpan;
-    const direction = c % 2 === 0 ? 1 : -1;
-
-    for (let s = 0; s <= samplePerCurve; s++) {
-      const t = s / samplePerCurve;
-      const y = startY + (endY - startY) * t;
-      const x = centerX + direction * amplitude * Math.sin(t * Math.PI);
-      sampled.push({ x, y });
-    }
-  }
-
+  sampled.push(...bodyStart);
   return sampled;
 }
 
@@ -269,8 +296,16 @@ function generateRectangularPath(shooterX, shooterY, params = {}) {
   const sampled = [];
   const startX = centerX + outerW / 2 + 50;
   const startY = topY;
-  sampled.push({ x: GAME_WIDTH + 96, y: startY });
-  sampled.push({ x: startX, y: startY });
+  // Skip the auto entry segment if the author pushed the rectangular body's
+  // top edge into the HUD / button strips (or off-canvas vertically). We
+  // intentionally don't inspect startX here because it's the off-screen
+  // approach coordinate and is always outside [0, GAME_WIDTH].
+  const skipEntry =
+    startY < HUD_HEIGHT || startY > GAME_HEIGHT - BOTTOM_BUTTON_HEIGHT;
+  if (!skipEntry) {
+    sampled.push({ x: GAME_WIDTH + 96, y: startY });
+    sampled.push({ x: startX, y: startY });
+  }
 
   for (let ring = 0; ring < rings; ring++) {
     const w = outerW - ring * shrink * 2;
@@ -345,8 +380,15 @@ function generateZigzagPath(shooterX, shooterY, params = {}) {
   const right = GAME_WIDTH - marginX;
 
   const sampled = [];
-  sampled.push({ x: GAME_WIDTH + 96, y: topY });
-  sampled.push({ x: right + 20, y: topY });
+  // Skip the auto entry segment if the author pushed the first zigzag row
+  // into the HUD / button strips (or off-canvas vertically). We only inspect
+  // y — the entry approach x is always outside [0, GAME_WIDTH] by design.
+  const skipEntry =
+    topY < HUD_HEIGHT || topY > GAME_HEIGHT - BOTTOM_BUTTON_HEIGHT;
+  if (!skipEntry) {
+    sampled.push({ x: GAME_WIDTH + 96, y: topY });
+    sampled.push({ x: right + 20, y: topY });
+  }
 
   for (let row = 0; row < rows; row++) {
     const y = topY + row * rowHeight;
@@ -485,9 +527,11 @@ function generateBezierPath(shooterX, shooterY, params = {}) {
     }
   }
 
-  // Off-screen entry segment: horizontal line from right edge
+  // Off-screen entry segment: horizontal line from right edge.
+  // Skip it entirely if the author already placed the start off-screen.
   if (allPoints.length > 0) {
     const first = allPoints[0];
+    if (isOffscreen(first)) return allPoints;
     const entryStart = { x: GAME_WIDTH + 100, y: first.y };
     const en = 40;
     const entryPts = [];
@@ -582,9 +626,11 @@ function generateDrawnPath(shooterX, shooterY, params = {}) {
     }
   }
 
-  // Add off-screen entry segment: horizontal line from right edge
+  // Add off-screen entry segment: horizontal line from right edge.
+  // Skip it entirely if the author already placed the start off-screen.
   if (allPoints.length > 0) {
     const first = allPoints[0];
+    if (isOffscreen(first)) return allPoints;
     const entryStart = { x: GAME_WIDTH + 100, y: first.y };
     const en = 40;
     const entryPts = [];

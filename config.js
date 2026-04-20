@@ -3,6 +3,15 @@
 export const GAME_WIDTH = 430;
 export const GAME_HEIGHT = 932;
 
+// Screen real-estate reserved for UI. The top strip is the HUD (stone panel,
+// level title, score, next-ball preview); the bottom strip holds the
+// restart/back buttons. Anything outside [HUD_HEIGHT, GAME_HEIGHT -
+// BOTTOM_BUTTON_HEIGHT] is considered outside the playable area: paths whose
+// start point lives there skip the auto-generated entry segment, and balls
+// that would render there are culled so they can't appear on top of HUD/buttons.
+export const HUD_HEIGHT = 120;
+export const BOTTOM_BUTTON_HEIGHT = 70;
+
 // Ball geometry and default spacing. BALL_SPACING is intentionally slightly
 // smaller than diameter so the chain reads as a continuous packed line.
 export const BALL_RADIUS = 14;
