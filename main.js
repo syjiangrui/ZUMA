@@ -758,7 +758,7 @@ class ZumaGame {
     if (this.gameState === "levelSelect") {
       for (const level of LEVELS) {
         const rect = this.getLevelButtonRect(level.id);
-        if (this.isPointInsideRect(x, y, rect) && level.id <= this.levelProgress.unlockedLevel) {
+        if (this.isPointInsideRect(x, y, rect)) {
           return `selectLevel:${level.id}`;
         }
       }

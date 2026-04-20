@@ -1925,7 +1925,7 @@ function drawPathThumbnail(ctx, level, rect) {
 
 function drawLevelButton(game, ctx, level) {
   const rect = game.getLevelButtonRect(level.id);
-  const isUnlocked = level.id <= game.levelProgress.unlockedLevel;
+  const isUnlocked = true;
   const levelData = game.levelProgress.levels[level.id];
   const isCleared = levelData?.cleared ?? false;
   const highScore = levelData?.highScore ?? 0;

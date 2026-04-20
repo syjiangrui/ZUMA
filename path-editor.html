@@ -106,7 +106,7 @@ body{background:#0e1218;color:#ddd;font-family:-apple-system,sans-serif;display:
 
 <div id="canvas-wrap">
   <canvas id="cv"></canvas>
-  <div id="hint">拖拽端点和控制点 | 端点接近时自动吸附对齐 | 滚轮缩放 | 中键平移 | Alt+拖拽移动参考图</div>
+  <div id="hint">拖拽端点和控制点 | 端点接近时自动吸附对齐 | Ctrl+滚轮缩放 | 空格+拖拽/中键平移 | Alt+拖拽移动参考图</div>
 </div>
 
 <script type="module">
@@ -145,6 +145,7 @@ let scale = 0.5;
 let panX = 0, panY = 0;
 let dragging = null; // { curveIndex, point:'p1'|'cp'|'p2' } or 'shooter' or 'pan' or 'refImage'
 let dragStart = null;
+let spaceHeld = false;
 const SNAP_DISTANCE = 15;
 
 // ─── Reference image state ─────────────────────────────────────────
@@ -474,10 +475,22 @@ function findSnapTarget(curveIndex, pointType, gx, gy) {
   return bestPoint;
 }
 
+function updateCanvasCursor() {
+  cv.style.cursor = spaceHeld ? (dragging === 'pan' ? 'grabbing' : 'grab') : 'crosshair';
+}
+
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space' && !e.repeat) { spaceHeld = true; updateCanvasCursor(); }
+});
+window.addEventListener('keyup', e => {
+  if (e.code === 'Space') { spaceHeld = false; updateCanvasCursor(); }
+});
+
 cv.addEventListener('mousedown', e => {
-  if (e.button === 1) {
+  if (e.button === 1 || (e.button === 0 && spaceHeld)) {
     dragging = 'pan';
     dragStart = { x: e.offsetX, y: e.offsetY, panX, panY };
+    cv.style.cursor = 'grabbing';
     e.preventDefault();
     return;
   }
@@ -548,18 +561,28 @@ cv.addEventListener('mousemove', e => {
   render();
 });
 
-cv.addEventListener('mouseup', () => { dragging = null; });
-cv.addEventListener('mouseleave', () => { dragging = null; });
+cv.addEventListener('mouseup', () => { dragging = null; updateCanvasCursor(); });
+cv.addEventListener('mouseleave', () => { dragging = null; updateCanvasCursor(); });
 
 cv.addEventListener('wheel', e => {
-  const factor = e.deltaY > 0 ? 0.9 : 1.1;
-  const mx = e.offsetX, my = e.offsetY;
-  panX = mx - (mx - panX) * factor;
-  panY = my - (my - panY) * factor;
-  scale *= factor;
-  scale = Math.max(0.2, Math.min(2, scale));
-  render();
   e.preventDefault();
+
+  if (e.ctrlKey) {
+    // Ctrl+scroll or pinch-to-zoom: zoom in/out
+    const step = Math.min(Math.abs(e.deltaY), 200) / 200;
+    const direction = e.deltaY > 0 ? -1 : 1;
+    const factor = 1 + direction * step * 0.08;
+    const mx = e.offsetX, my = e.offsetY;
+    panX = mx - (mx - panX) * factor;
+    panY = my - (my - panY) * factor;
+    scale *= factor;
+    scale = Math.max(0.2, Math.min(2, scale));
+  } else {
+    // Regular scroll: pan the canvas
+    panX -= e.deltaX;
+    panY -= e.deltaY;
+  }
+  render();
 }, { passive: false });
 
 // ─── Curve list UI ──────────────────────────────────────────────────
