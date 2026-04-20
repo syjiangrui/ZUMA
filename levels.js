@@ -1,29 +1,28 @@
 // levels.js — Per-level configuration for the 8-level game.
 // Each level overrides the global defaults from config.js.
 // pathType + pathParams are consumed by path.js to generate the track.
+// If level-paths.json exists (saved by the path editor), bezier levels
+// are loaded from there instead of the hardcoded defaults.
 
 import { GAME_WIDTH, GAME_HEIGHT } from './config.js';
 
-export const LEVELS = [
+// Hardcoded defaults — used when level-paths.json is not available.
+const DEFAULT_LEVELS = [
   {
     id: 1,
     name: "石阶祭坛",
     chainCount: 20,
     chainSpeed: 40,
     colorCount: 3,
-    pathType: "drawn",
+    pathType: "bezier",
     pathParams: {
-      segments: [
-        // 1. Top line: right → left
-        { type:"line", x1:395, y1:296, x2:145, y2:296 },
-        // 2. Top-left corner: turn down, arc bulges LEFT (C opens right)
-        { type:"arc", cx:145, cy:366, radius:70, startAngle:-Math.PI/2, endAngle:-Math.PI },
-        // 3. Left side: down
-        { type:"line", x1:75, y1:366, x2:75, y2:566 },
-        // 4. Bottom-left corner: turn right, arc bulges LEFT
-        { type:"arc", cx:145, cy:566, radius:70, startAngle:Math.PI, endAngle:Math.PI/2 },
-        // 5. Bottom line: left → right (exit)
-        { type:"line", x1:145, y1:636, x2:395, y2:636 },
+      // Each curve = 3 points (p1, cp, p2). No deduplication.
+      points: [
+        {x:395, y:296}, {x:270, y:296}, {x:145, y:296},  // 曲线1
+        {x:145, y:296}, {x:75, y:296},  {x:75, y:366},   // 曲线2
+        {x:75, y:366},  {x:75, y:466},  {x:75, y:566},   // 曲线3
+        {x:75, y:566},  {x:75, y:636},  {x:145, y:636},  // 曲线4
+        {x:145, y:636}, {x:270, y:636}, {x:395, y:636},  // 曲线5
       ],
     },
     shooterPos: { x:215, y:466 },
@@ -154,6 +153,38 @@ export const LEVELS = [
     shooterPos: { x: GAME_WIDTH * 0.5, y: GAME_HEIGHT * 0.82 },
   },
 ];
+
+// Mutable levels array — starts as a deep copy of defaults,
+// then gets overwritten by level-paths.json if it exists.
+export const LEVELS = JSON.parse(JSON.stringify(DEFAULT_LEVELS));
+
+// Try to load level-paths.json (saved by the path editor).
+// Must be called before the game starts. Returns a Promise.
+export async function initLevels() {
+  try {
+    const resp = await fetch('./level-paths.json');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    // Merge: for each level that has curves in the JSON, convert to bezier
+    for (let i = 0; i < Math.min(data.length, LEVELS.length); i++) {
+      if (data[i] && data[i].curves && data[i].curves.length > 0) {
+        // Flatten curves to points array: 3 points per curve (p1, cp, p2).
+        // No deduplication — path.js sampler handles duplicate points.
+        const points = [];
+        for (const c of data[i].curves) {
+          points.push({ x: c.p1.x, y: c.p1.y });
+          points.push({ x: c.cp.x, y: c.cp.y });
+          points.push({ x: c.p2.x, y: c.p2.y });
+        }
+        LEVELS[i].pathType = "bezier";
+        LEVELS[i].pathParams = { points };
+        LEVELS[i].shooterPos = data[i].shooterPos || LEVELS[i].shooterPos;
+      }
+    }
+  } catch (e) {
+    // File not found or parse error — use defaults
+  }
+}
 
 // Helper: get level config by id, or null if not found.
 export function getLevelById(id) {

@@ -40,7 +40,7 @@ import {
   render as renderFn,
   createTextures as createTexturesFn,
 } from './render.js';
-import { LEVELS, getLevelById } from './levels.js';
+import { LEVELS, getLevelById, initLevels } from './levels.js';
 import { loadProgress, saveProgress, recordLevelClear, updateHighScore, resetProgress } from './save.js';
 
 class ZumaGame {
@@ -932,11 +932,12 @@ class ZumaGame {
 
 ZumaGame._LEVELS = LEVELS;
 
-window.addEventListener("load", () => {
+window.addEventListener("load", async () => {
   const canvas = document.getElementById("gameCanvas");
   if (!canvas) {
     return;
   }
 
+  await initLevels();
   new ZumaGame(canvas);
 });

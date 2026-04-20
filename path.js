@@ -21,6 +21,9 @@ export function createPath(shooterX, shooterY, pathType = "spiral", pathParams =
     case "openArc":
       sampled = generateOpenArcPath(shooterX, shooterY, pathParams);
       break;
+    case "bezier":
+      sampled = generateBezierPath(shooterX, shooterY, pathParams);
+      break;
     case "drawn":
       sampled = generateDrawnPath(shooterX, shooterY, pathParams);
       break;
@@ -434,6 +437,57 @@ export function catmullRom(p0, p1, p2, p3, t) {
         (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
         (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3),
   };
+}
+
+// Bezier path — quadratic Bezier curves defined by a control point array.
+// pathParams.points format: [p1, cp, p2, p1, cp, p2, ...] — every curve
+// always stores 3 points (no dedup). Curves can be connected or independent.
+// The sampler skips duplicate adjacent sample points to keep the dense array clean.
+function generateBezierPath(shooterX, shooterY, params = {}) {
+  const points = params.points ?? [];
+  if (points.length < 3) return [];
+
+  const SAMPLES_PER_CURVE = 50;
+  const allPoints = [];
+
+  for (let idx = 0; idx + 2 < points.length; idx += 3) {
+    const p1 = points[idx];
+    const cp = points[idx + 1];
+    const p2 = points[idx + 2];
+
+    for (let s = 0; s <= SAMPLES_PER_CURVE; s++) {
+      const t = s / SAMPLES_PER_CURVE;
+      const inv = 1 - t;
+      const pt = {
+        x: inv * inv * p1.x + 2 * inv * t * cp.x + t * t * p2.x,
+        y: inv * inv * p1.y + 2 * inv * t * cp.y + t * t * p2.y,
+      };
+      // Skip duplicates: if this point is within 1px of the previous one, drop it
+      if (allPoints.length > 0) {
+        const prev = allPoints[allPoints.length - 1];
+        if (Math.hypot(pt.x - prev.x, pt.y - prev.y) < 1) continue;
+      }
+      allPoints.push(pt);
+    }
+  }
+
+  // Off-screen entry segment: horizontal line from right edge
+  if (allPoints.length > 0) {
+    const first = allPoints[0];
+    const entryStart = { x: GAME_WIDTH + 100, y: first.y };
+    const en = 40;
+    const entryPts = [];
+    for (let s = 0; s <= en; s++) {
+      const t = s / en;
+      entryPts.push({
+        x: entryStart.x + (first.x - entryStart.x) * t,
+        y: first.y,
+      });
+    }
+    return [...entryPts, ...allPoints];
+  }
+
+  return allPoints;
 }
 
 // Drawn path — free combination of lines, arcs, and circles.
