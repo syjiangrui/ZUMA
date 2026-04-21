@@ -17,40 +17,41 @@ function isOffscreen(pt) {
 // Build the track geometry. pathType selects the curve family; pathParams
 // tunes it. Returns { pathPoints, totalPathLength, cachedTrackPath }.
 export function createPath(shooterX, shooterY, pathType = "spiral", pathParams = {}) {
-  let sampled;
+  let generated;
 
   switch (pathType) {
     case "spiral":
-      sampled = generateSpiralPath(shooterX, shooterY, pathParams);
+      generated = generateSpiralPath(shooterX, shooterY, pathParams);
       break;
     case "serpentine":
-      sampled = generateSerpentinePath(shooterX, shooterY, pathParams);
+      generated = generateSerpentinePath(shooterX, shooterY, pathParams);
       break;
     case "rectangular":
-      sampled = generateRectangularPath(shooterX, shooterY, pathParams);
+      generated = generateRectangularPath(shooterX, shooterY, pathParams);
       break;
     case "zigzag":
-      sampled = generateZigzagPath(shooterX, shooterY, pathParams);
+      generated = generateZigzagPath(shooterX, shooterY, pathParams);
       break;
     case "openArc":
-      sampled = generateOpenArcPath(shooterX, shooterY, pathParams);
+      generated = generateOpenArcPath(shooterX, shooterY, pathParams);
       break;
     case "bezier":
-      sampled = generateBezierPath(shooterX, shooterY, pathParams);
+      generated = generateBezierPath(shooterX, shooterY, pathParams);
       break;
     case "drawn":
-      sampled = generateDrawnPath(shooterX, shooterY, pathParams);
+      generated = generateDrawnPath(shooterX, shooterY, pathParams);
       break;
     default:
-      sampled = generateSpiralPath(shooterX, shooterY, pathParams);
+      generated = generateSpiralPath(shooterX, shooterY, pathParams);
       break;
   }
 
-  return finalizePath(sampled);
+  return finalizePath(generated);
 }
 
 // Shared post-processing: compute cumulative arc lengths and build Path2D cache.
-function finalizePath(sampled) {
+function finalizePath(generated) {
+  const sampled = Array.isArray(generated) ? generated : (generated?.sampled ?? []);
   let total = 0;
   const pathPoints = sampled.map((point, index) => {
     if (index > 0) {
@@ -61,6 +62,22 @@ function finalizePath(sampled) {
   });
 
   const totalPathLength = total;
+
+  if (pathPoints.length === 0) {
+    return {
+      pathPoints: [],
+      totalPathLength: 0,
+      cachedTrackPath: new Path2D(),
+    };
+  }
+
+  if (!Array.isArray(generated) && generated?.renderPath) {
+    return {
+      pathPoints,
+      totalPathLength,
+      cachedTrackPath: generated.renderPath,
+    };
+  }
 
   // Build a smooth rendering path using Catmull-Rom interpolation between
   // sampled points.  The original pathPoints (used for marble positioning)
@@ -505,11 +522,31 @@ function generateBezierPath(shooterX, shooterY, params = {}) {
 
   const SAMPLES_PER_CURVE = 50;
   const allPoints = [];
+  const firstPoint = points[0];
+  const renderPath = new Path2D();
+  let renderStarted = false;
+  let lastRenderPoint = null;
+
+  if (!isOffscreen(firstPoint)) {
+    renderPath.moveTo(GAME_WIDTH + 100, firstPoint.y);
+    renderPath.lineTo(firstPoint.x, firstPoint.y);
+    renderStarted = true;
+    lastRenderPoint = firstPoint;
+  }
 
   for (let idx = 0; idx + 2 < points.length; idx += 3) {
     const p1 = points[idx];
     const cp = points[idx + 1];
     const p2 = points[idx + 2];
+
+     if (!renderStarted) {
+      renderPath.moveTo(p1.x, p1.y);
+      renderStarted = true;
+    } else if (!lastRenderPoint || Math.hypot(p1.x - lastRenderPoint.x, p1.y - lastRenderPoint.y) > 0.5) {
+      renderPath.lineTo(p1.x, p1.y);
+    }
+    renderPath.quadraticCurveTo(cp.x, cp.y, p2.x, p2.y);
+    lastRenderPoint = p2;
 
     for (let s = 0; s <= SAMPLES_PER_CURVE; s++) {
       const t = s / SAMPLES_PER_CURVE;
@@ -531,7 +568,9 @@ function generateBezierPath(shooterX, shooterY, params = {}) {
   // Skip it entirely if the author already placed the start off-screen.
   if (allPoints.length > 0) {
     const first = allPoints[0];
-    if (isOffscreen(first)) return allPoints;
+    if (isOffscreen(first)) {
+      return { sampled: allPoints, renderPath };
+    }
     const entryStart = { x: GAME_WIDTH + 100, y: first.y };
     const en = 40;
     const entryPts = [];
@@ -542,10 +581,10 @@ function generateBezierPath(shooterX, shooterY, params = {}) {
         y: first.y,
       });
     }
-    return [...entryPts, ...allPoints];
+    return { sampled: [...entryPts, ...allPoints], renderPath };
   }
 
-  return allPoints;
+  return { sampled: allPoints, renderPath };
 }
 
 // Drawn path — free combination of lines, arcs, and circles.
