@@ -33,7 +33,8 @@ src/               主游戏源码（ES modules）
   main.js          游戏入口
   ...
 public/            静态资源（按原路径暴露到站点根）
-  level-paths.json 关卡路径数据
+  level-paths.json 关卡路径数据（含可选 background 字段）
+  backgrounds/     关卡背景图片（可选，路径由 level-paths.json 的 background.src 指定）
 tools/
   path-editor/     贝塞尔路径编辑器（开发工具，不进产品）
 docs/              设计文档

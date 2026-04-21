@@ -85,7 +85,8 @@ The game logic and rendering is organized as ES modules within a `ZumaGame` orch
    - Scoring formula: base (100/ball) + large-group bonus + combo bonus + seam bonus
 
 8. **Rendering** (`render()`, `drawBall()`, `drawChain()`, `drawBackground()`, etc.)
-   - Layered draw order: background → track → goal → chain → projectile → aim guide → shooter → HUD → end card
+   - Layered draw order: background → (optional per-level background image) → track → goal → chain → projectile → aim guide → shooter → HUD → end card
+   - Per-level background image: when `level.background.src` is set, the image is painted over the procedural gradient (clipped to the play area) and the procedural `drawTrack()` is skipped — the image itself is expected to carry the track artwork. `drawGoal()` and `drawBackground()` (gradient fallback) always run.
    - **Shooter is a classic Zuma stone frog** (`drawShooter()` → `drawFrogBody()`, `drawFrogJawBehind()`, `drawFrogJawFront()`, `drawFrogEyes()`, `drawFrogBellySocket()`). Entire frog rotates with aim angle; ground shadow stays flat. Current ball is held in the frog's mouth (upper jaw overlaps ball top); next ball sits in a belly socket. Frog geometry is pre-rendered to two offscreen layers (behind/front of ball) for performance.
    - Ball textures: procedurally generated with stone body + rolling equatorial band
    - Temple glyphs: scarab, eye, sun, mask, ankh (one per color palette)
@@ -314,7 +315,8 @@ The modularization described below has been completed. The codebase is now split
 ├── vite.config.js          # Build config — multi-entry (main + path-editor)
 ├── README.md               # Dev/build instructions
 ├── public/
-│   └── level-paths.json    # Bezier level data (served at site root)
+│   ├── level-paths.json    # Bezier level data + optional per-level background metadata (served at site root)
+│   └── backgrounds/        # Per-level background images referenced by level-paths.json (optional)
 ├── src/
 │   ├── main.js             # ZumaGame orchestrator, input, particles, loop
 │   ├── config.js           # Constants, palettes, tuning params
@@ -380,7 +382,7 @@ No module imports from a sibling module (except config.js). All cross-subsystem 
 
 The rendering pipeline uses aggressive offscreen-canvas caching to avoid creating gradients and rebuilding paths every frame:
 
-- **`staticSceneCache`**: Background + track + goal pre-rendered once to a full-screen offscreen canvas. `render()` blits it with a single `drawImage`.
+- **`staticSceneCache`**: Procedural gradient background + optional per-level background image + goal pre-rendered once to a full-screen offscreen canvas. `render()` blits it with a single `drawImage`. Invalidated (set to `null`) when the level changes or when an async-loaded background image finishes loading. Track artwork is either drawn procedurally here (no background image) or assumed to be part of the background image (procedural `drawTrack()` is skipped in that case).
 - **`cachedTrackPath`** (`Path2D`): Track polyline (~616 points) built once; `strokePath()` uses `ctx.stroke(path2d)` instead of per-frame `lineTo` loops.
 - **`ballBaseCache[palette]`**: Per-palette body gradient pre-rendered to offscreen canvases. `drawBall()` uses `drawImage` for the base layer.
 - **`ballOverCache`**: Shared matte shade + worn bloom overlay (radius-dependent, palette-independent) pre-rendered once.

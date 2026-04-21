@@ -848,7 +848,7 @@ rotation = s / radius
 
 | 缓存 | 内容 | 何时创建 |
 |------|------|----------|
-| `staticSceneCache` | 背景 + 轨道 + 终点 | `createStaticSceneCache()` |
+| `staticSceneCache` | 背景渐变 + 可选的关卡背景图片 + 终点（关卡配置了 `background` 时跳过程序化 `drawTrack`） | `createStaticSceneCache()` |
 | `cachedTrackPath` (Path2D) | 轨道折线 (~616 点) | `createPath()` |
 | `ballBaseCache[palette]` | 每种颜色的球体基底 gradient | `createBallRenderCache()` |
 | `ballOverCache` | 共享的 matte shade + worn bloom 叠加 | `createBallRenderCache()` |
@@ -920,6 +920,7 @@ Phase 4 transforms the single-level prototype into a complete 8-level game with 
 | `colorCount` | 使用的颜色数（3–5，影响难度） |
 | `chainSpeed` | 链条前进速度 |
 | `shooterX` / `shooterY` | 发射器位置（不同路径需要不同中心点） |
+| `background`（可选） | 关卡背景图配置：`{ src, x, y, scale }`。仅 `level-paths.json` 指定；缺失时走程序化渐变 + `drawTrack` 降级。`src` 相对 `public/` 根（如 `backgrounds/level-1.jpg`），`x/y/scale` 由路径编辑器的"保存为本关背景"按钮写入，对应运行时 `ctx.translate + ctx.scale + drawImage` 参数。|
 
 难度曲线通过逐关增加 `colorCount`、`chainCount`、`chainSpeed` 实现。
 
