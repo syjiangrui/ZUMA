@@ -39,6 +39,21 @@ export function sampleQuadraticBezier(p1, cp, p2, numSamples = 50) {
   return points;
 }
 
+export function sampleCubicBezier(p1, cp1, cp2, p2, numSamples = 50) {
+  const points = [];
+  for (let i = 0; i <= numSamples; i++) {
+    const t = i / numSamples;
+    const inv = 1 - t;
+    const inv2 = inv * inv;
+    const t2 = t * t;
+    points.push({
+      x: inv2 * inv * p1.x + 3 * inv2 * t * cp1.x + 3 * inv * t2 * cp2.x + t2 * t * p2.x,
+      y: inv2 * inv * p1.y + 3 * inv2 * t * cp1.y + 3 * inv * t2 * cp2.y + t2 * t * p2.y,
+    });
+  }
+  return points;
+}
+
 export function resampleByArcLength(points, step) {
   const src = dedupeAdjacent(points, 0.25);
   if (src.length < 2 || step <= 0) return src;

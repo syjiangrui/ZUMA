@@ -56,10 +56,12 @@ The game logic and rendering is organized as ES modules within a `ZumaGame` orch
    - Clears chain, projectile, split state, action contexts, and HUD feedback
 
 4. **Path & Geometry** (`createPath()`, `getPointAtDistance()`, `getClosestPathDistance()`, `catmullRom()`)
-   - Path is an Archimedean spiral with off-screen entry/exit
+   - Path system is a pluggable dispatcher with 7 generators (spiral, serpentine, rectangular, zigzag, openArc, quadratic Bezier, cubic Bezier)
+   - Bezier levels are authored in `path-editor.html` and persisted to `level-paths.json`
    - Uses arc-length parameterization (not parametric `t`)
    - Pre-sampled into `pathPoints[]` with cumulative `len` for O(log n) distance lookups
-   - Critical for stable ball movement along track
+   - `cachedTrackPath` (Path2D) is built by the generators themselves so the renderer strokes the original curve, not the resampled polyline
+   - See `docs/path-editor-and-bezier-paths.md` for data formats, editor interaction, and the pen-tool cubic Bezier workflow
 
 5. **Ball Chain System** (`chain[]`, `chainHeadS`, `updateChain()`, `syncChainPositions()`)
    - All balls on track share a single base position: `chainHeadS`
@@ -267,7 +269,8 @@ When working on Phase 3 tasks:
 
 **Phase 4** (completed) is the multi-level game loop:
 - 8 levels with level selection UI (Mayan-themed stone buttons)
-- 4 path types: spiral, serpentine, rectangular, zigzag
+- Pluggable path system with 7 generators: spiral, serpentine, rectangular, zigzag, openArc, quadratic Bezier, cubic Bezier
+- Quadratic/cubic Bezier levels are authored in `path-editor.html` (Waypoint fit / 笔刷 freehand / ✒ pen tool) and persisted to `level-paths.json`
 - Per-level difficulty curve (ball count, speed, color count)
 - localStorage save/load for progress
 - Fade transitions between levels
@@ -275,9 +278,10 @@ When working on Phase 3 tasks:
 - Path system refactored into dispatcher + pluggable generators
 
 When working on Phase 5 tasks:
-- **Do not** change the path generator interface (sampled[] → finalizePath → pathPoints[])
+- **Do not** change the path generator interface (`{ sampled, renderPath }` → `finalizePath` → `pathPoints[]`)
 - **Do not** change the level config schema without updating all 8 level definitions
-- **Do** add new path types by implementing generators and registering in createPath() switch
+- **Do not** silently downgrade cubic Bezier levels to quadratic; the editor enforces "one kind per level" and the pen tool keeps a snapshot so users can cancel the upgrade
+- **Do** add new path types by implementing generators and registering in `createPath()` switch
 - **Do** add special ball types by extending the ball data model, not the chain rules
 
 ## Completed Refactoring
@@ -309,12 +313,14 @@ The modularization described below has been completed. The codebase is now split
 ├── style.css               # Canvas sizing, page layout, color scheme
 ├── config.js               # Constants, palettes, tuning params (~104 lines)
 ├── sfx.js                  # SfxEngine class — procedural audio (~181 lines)
-├── path.js                 # Pure path geometry functions (~197 lines)
+├── path.js                 # Path dispatcher + 7 generators (~771 lines)
+├── path-fit.js             # Quadratic & cubic Bezier sampling + adaptive fit (~420 lines)
+├── path-editor.html        # Bezier path editor w/ Waypoint / Brush / Pen tools (~2838 lines)
 ├── chain.js                # Chain + split/merge + ball transitions (~385 lines)
 ├── match.js                # Match detection, scoring, action contexts (~330 lines)
 ├── projectile.js           # Projectile flight, collision, insertion (~141 lines)
 ├── render.js               # All draw*, texture generation, HUD (~1729 lines)
-├── levels.js               # 8-level configuration array (~93 lines)
+├── levels.js               # 8-level configuration array + Bezier loader (~218 lines)
 ├── save.js                 # localStorage save/load for level progress (~75 lines)
 ├── main.js                 # ZumaGame orchestrator, input, particles, loop (~703 lines)
 ├── CLAUDE.md               # This file

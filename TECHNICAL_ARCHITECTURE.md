@@ -226,7 +226,7 @@ ball.s = chainHeadS - index * BALL_SPACING + offset + splitOffset
 
 ### 6.1 路径定义
 
-路径系统已从单一螺旋轨道重构为多路径类型调度架构。`path.js` 现在包含一个调度器和 4 种路径生成器。
+路径系统已从单一螺旋轨道重构为多路径类型调度架构。`path.js` 现在包含一个调度器和多种路径生成器。
 
 调度入口：
 
@@ -234,7 +234,7 @@ ball.s = chainHeadS - index * BALL_SPACING + offset + splitOffset
 createPath(shooterX, shooterY, pathType, pathParams) → finalizePath()
 ```
 
-4 种路径生成器：
+6 种路径生成器：
 
 | 生成器 | pathType | 描述 |
 |--------|----------|------|
@@ -242,8 +242,11 @@ createPath(shooterX, shooterY, pathType, pathParams) → finalizePath()
 | `generateSerpentinePath` | `"serpentine"` | 蛇形 S 曲线 |
 | `generateRectangularPath` | `"rectangular"` | 矩形/方形折线路径 |
 | `generateZigzagPath` | `"zigzag"` | 锯齿形路径 |
+| `generateOpenArcPath` | `"openArc"` | 椭圆弧开环 |
+| `generateBezierPath` | `"bezier"` / `"quadratic"` | 二次贝塞尔曲线链（编辑器产出，`"bezier"` 为旧别名） |
+| `generateCubicBezierPath` | `"cubic"` | 三次贝塞尔曲线链（钢笔工具产出） |
 
-`createPath()` 根据 `pathType` 参数分发到对应生成器，生成器输出控制点，随后 `finalizePath()` 统一执行 Catmull-Rom 插值 + 弧长重采样，产出标准 `pathPoints[]`。
+`createPath()` 根据 `pathType` 参数分发到对应生成器，生成器输出控制点与 Path2D，随后 `finalizePath()` 计算累计弧长并统一产出 `pathPoints[]`。详细的贝塞尔数据格式、编辑器交互、钢笔工具参考 `docs/path-editor-and-bezier-paths.md`。
 
 这套实现分成两步：
 
@@ -910,7 +913,7 @@ Phase 4 transforms the single-level prototype into a complete 8-level game with 
 | 字段 | 含义 |
 |------|------|
 | `name` | 关卡显示名称 |
-| `pathType` | 路径类型：`"spiral"` / `"serpentine"` / `"rectangular"` / `"zigzag"` |
+| `pathType` | 路径类型：`"spiral"` / `"serpentine"` / `"rectangular"` / `"zigzag"` / `"openArc"` / `"bezier"`(quadratic) / `"cubic"` |
 | `pathParams` | 路径生成器的参数（圈数、振幅、段数等） |
 | `chainCount` | 初始球链长度 |
 | `colorCount` | 使用的颜色数（3–5，影响难度） |

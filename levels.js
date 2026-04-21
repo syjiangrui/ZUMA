@@ -168,15 +168,41 @@ export async function initLevels() {
     // Merge: for each level that has curves in the JSON, convert to bezier
     for (let i = 0; i < Math.min(data.length, LEVELS.length); i++) {
       if (data[i] && data[i].curves && data[i].curves.length > 0) {
-        // Flatten curves to points array: 3 points per curve (p1, cp, p2).
-        // No deduplication — path.js sampler handles duplicate points.
+        const curves = data[i].curves;
+        // Detect curve family: explicit pathType wins; otherwise any segment
+        // carrying cp1+cp2 signals cubic Bezier authoring.
+        const isCubic =
+          data[i].pathType === "cubic" ||
+          curves.some(c => c && c.cp1 && c.cp2);
         const points = [];
-        for (const c of data[i].curves) {
-          points.push({ x: c.p1.x, y: c.p1.y });
-          points.push({ x: c.cp.x, y: c.cp.y });
-          points.push({ x: c.p2.x, y: c.p2.y });
+        if (isCubic) {
+          for (const c of curves) {
+            // Tolerate mixed legacy {p1, cp, p2} segments by upgrading them
+            // via the exact quadratic→cubic formula.
+            const cp1 = c.cp1 ?? {
+              x: c.p1.x + (2 / 3) * (c.cp.x - c.p1.x),
+              y: c.p1.y + (2 / 3) * (c.cp.y - c.p1.y),
+            };
+            const cp2 = c.cp2 ?? {
+              x: c.p2.x + (2 / 3) * (c.cp.x - c.p2.x),
+              y: c.p2.y + (2 / 3) * (c.cp.y - c.p2.y),
+            };
+            points.push({ x: c.p1.x, y: c.p1.y });
+            points.push({ x: cp1.x, y: cp1.y });
+            points.push({ x: cp2.x, y: cp2.y });
+            points.push({ x: c.p2.x, y: c.p2.y });
+          }
+          LEVELS[i].pathType = "cubic";
+        } else {
+          // Legacy quadratic: 3 points per curve (p1, cp, p2). path.js sampler
+          // handles duplicate adjacent points between segments.
+          for (const c of curves) {
+            points.push({ x: c.p1.x, y: c.p1.y });
+            points.push({ x: c.cp.x, y: c.cp.y });
+            points.push({ x: c.p2.x, y: c.p2.y });
+          }
+          LEVELS[i].pathType = "bezier";
         }
-        LEVELS[i].pathType = "bezier";
         LEVELS[i].pathParams = { points };
         LEVELS[i].shooterPos = data[i].shooterPos || LEVELS[i].shooterPos;
       }

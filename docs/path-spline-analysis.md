@@ -279,4 +279,21 @@
 
 一句话总结：
 
-**当前问题更像“渲染和接头连续性问题”，不是“必须改成 B-spline 才能解决的问题”。**
+**当前问题更像"渲染和接头连续性问题"，不是"必须改成 B-spline 才能解决的问题"。**
+
+---
+
+## 2026-04-21 更新：三次贝塞尔已实施
+
+上文的**中期推荐**（二次 → 三次贝塞尔）已经落地，作为"整关二选一"的形态与二次贝塞尔并存：
+
+- `path.js` 新增 `generateCubicBezierPath()`，与 `generateBezierPath()` 走同一个 `finalizePath` 管线
+- `path-editor.html` 新增 ✒ 钢笔工具（Illustrator 风格），提供点击尖角、拖拽对称手柄、Alt 断对称、Shift 45° 约束、C 键切换平滑、Ctrl/空格 临时模式等完整交互
+- 进入钢笔模式时整关从 quadratic **精确升级**为 cubic（`cp1 = p1 + 2/3·(cp - p1)`, `cp2 = p2 + 2/3·(cp - p2)`，曲线形状像素级不变），并保存快照：若会话期间未作任何修改，退出时自动回滚到 quadratic
+- Waypoint / 笔刷的拟合结果在 cubic 关卡下自动升级为 cubic，保持数据模型统一
+- 旧 `level-paths.json`（无 `pathType`、无 `cp2`）加载后仍按 quadratic 解析，老关卡零迁移成本
+- 运行时 `getPointAtDistance()` 和 `cachedTrackPath` 对曲线族透明，不需改动
+
+**长期推荐**（waypoint-only + cubic B-spline / centripetal Catmull-Rom + corner tag）尚未实施；当前编辑器仍保留"显式编辑手柄"的手感，符合项目"作者想要精确控制每个拐点"的预期。
+
+详细的编辑器数据格式、交互快捷键和 C 键平滑算法参考 `path-editor-and-bezier-paths.md`。

@@ -62,6 +62,7 @@ body{background:#0e1218;color:#ddd;font-family:-apple-system,sans-serif;display:
 
   <div id="toolbar">
     <button class="tool-btn" onclick="addCurve()">＋ 添加曲线</button>
+    <button class="tool-btn" id="penBtn" onclick="togglePen()" title="钢笔工具：点击布置锚点，拖拽产生对称手柄；Alt 断对称，Shift 45° 约束，C 切换平/尖，Enter/Esc 结束路径">✒ 钢笔</button>
     <button class="tool-btn" id="waypointBtn" onclick="toggleWaypoints()">◎ Waypoint</button>
     <button class="tool-btn" id="brushBtn" onclick="toggleBrush()">✎ 笔刷</button>
     <button class="tool-btn" onclick="smoothJoints()" title="温和模式：只把相邻段接头处的切线对齐，端点/段数不变">≈ 平滑接头</button>
@@ -95,6 +96,15 @@ body{background:#0e1218;color:#ddd;font-family:-apple-system,sans-serif;display:
       <span id="brushSmoothVal" style="min-width:24px;text-align:right;color:#8a9aaa;font-size:10px">4</span>
     </div>
     <div style="color:#3a4a5a;font-size:10px;margin-top:2px">笔刷模式：在空白处按住拖动画线，松手自动转贝塞尔段。起点靠近上一段终点会自动接续。</div>
+  </div>
+  <div id="pen-bar" style="display:none;padding:6px 16px;border-bottom:1px solid #2a3444;font-size:11px;color:#8a9aaa">
+    <div style="color:#8a9aaa;line-height:1.5">
+      <strong style="color:#f0d57a">钢笔工具 · 三次贝塞尔</strong><br>
+      点击 = 尖角锚点　|　按下拖拽 = 对称手柄<br>
+      Alt + 拖 = 断对称　|　Shift = 45° 约束<br>
+      C = 选中锚点切换平/尖　|　Backspace = 删最后锚点<br>
+      Enter / Esc = 结束路径　|　Ctrl = 临时选择　|　空格 = 平移
+    </div>
   </div>
 
   <div id="curve-list-wrap">
@@ -147,6 +157,7 @@ import {
   fitQuadraticChain,
   resampleByArcLength,
   sampleQuadraticBezier,
+  sampleCubicBezier,
   simplifyPolylineRdp,
 } from './path-fit.js';
 
@@ -161,12 +172,15 @@ const CURVE_COLORS = [
 ];
 
 // ─── Data model ─────────────────────────────────────────────────────
-// Each level: { name, shooterPos:{x,y}, curves:[{p1, cp, p2}, ...], waypoints:[{x,y}, ...], _chainCount }
+// Each level: { name, pathType, shooterPos:{x,y}, curves:[...], waypoints:[{x,y}, ...], _chainCount }
+// pathType === 'quadratic': curves entries are { p1, cp, p2 }
+// pathType === 'cubic':     curves entries are { p1, cp1, cp2, p2, smooth }
 const CHAIN_COUNTS = [20, 23, 27, 30, 32, 35, 38, 42];
 const LEVELS = [];
 for (let i = 0; i < 8; i++) {
   LEVELS.push({
     name: `第${i + 1}关`,
+    pathType: 'quadratic',
     shooterPos: { x: Math.round(GAME_WIDTH * 0.5), y: Math.round(GAME_HEIGHT * 0.82) },
     curves: [],
     waypoints: [],
@@ -198,6 +212,26 @@ let brushSamples = [];
 const BRUSH_SAMPLE_MIN_DIST = 6;
 const BRUSH_JOIN_DISTANCE = 18;
 
+// ─── Pen tool state (Illustrator-style cubic Bezier authoring) ──────
+let penMode = false;
+// 'IDLE'       – no anchor dropped yet on a fresh path
+// 'CREATING'   – at least one anchor exists, clicking extends the chain
+// 'DRAGGING_HANDLE' – just dropped an anchor, mouse still down, shaping the handle
+// 'EDITING'    – pen still active but the path has been finalized (Enter/Esc/切关)
+let penState = 'IDLE';
+let penDrag = null;       // { anchorIndex, startX, startY, mirrorBroken, moved }
+// When the user drops the very first anchor of a fresh path we cannot create
+// a real cubic segment yet (a cubic segment needs two anchors). We stash the
+// first anchor here and materialize it into curves[] on the next click.
+let pendingFirstAnchor = null;   // { x, y, outHandle: {x,y}, smooth }
+let penPreviewMouse = null;      // last mouse position in game coords
+let penTouched = false;          // set once the user changed anything after entering pen mode
+let selectedAnchor = null;       // { curveIndex, point: 'p1'|'p2' } or null
+let ctrlTempSelect = false;      // Ctrl held → temporarily behave as selection tool
+let altBreakMirror = false;      // Alt held → break handle mirroring on current drag
+let shiftConstrain = false;      // Shift held → snap handle angle to 45°
+const PEN_DRAG_THRESHOLD = 3;    // px in game space before drag counts as handle authoring
+
 // ─── Reference image state ─────────────────────────────────────────
 let refImage = null;
 let refImgX = 0;
@@ -228,7 +262,41 @@ function dedupePoints(points, minDist = 1) {
   return out;
 }
 
-function normalizeCurve(curve) {
+// Normalize a curve to either quadratic or cubic shape. When `kind` is
+// 'auto' (default) we detect cubic by the presence of cp1+cp2. When the
+// caller passes an explicit kind we coerce via the exact quadratic↔cubic
+// formula (cubic→quadratic uses the midpoint of cp1/cp2, which only round-
+// trips exactly when the source was originally quadratic — we only call it
+// that direction during same-kind normalization on load, never to downgrade).
+function normalizeCurve(curve, kind = 'auto') {
+  const isCubic =
+    kind === 'cubic' ||
+    (kind === 'auto' && curve && curve.cp1 && curve.cp2);
+  if (isCubic) {
+    let cp1 = curve.cp1 ?? curve.points?.[1];
+    let cp2 = curve.cp2 ?? curve.points?.[2];
+    // Upgrade a legacy {p1, cp, p2} entry when forced to cubic.
+    if ((!cp1 || !cp2) && curve.cp) {
+      cp1 = cp1 ?? {
+        x: curve.p1.x + (2 / 3) * (curve.cp.x - curve.p1.x),
+        y: curve.p1.y + (2 / 3) * (curve.cp.y - curve.p1.y),
+      };
+      cp2 = cp2 ?? {
+        x: curve.p2.x + (2 / 3) * (curve.cp.x - curve.p2.x),
+        y: curve.p2.y + (2 / 3) * (curve.cp.y - curve.p2.y),
+      };
+    }
+    const normalized = {
+      p1: roundPoint(curve?.p1 || curve?.points?.[0]),
+      cp1: roundPoint(cp1),
+      cp2: roundPoint(cp2),
+      p2: roundPoint(curve?.p2 || curve?.points?.[3]),
+      smooth: curve?.smooth !== false,
+    };
+    if (curve?._chunkStart) normalized._chunkStart = true;
+    if (curve?._chunkEnd) normalized._chunkEnd = true;
+    return normalized;
+  }
   const normalized = {
     p1: roundPoint(curve?.p1 || curve?.points?.[0]),
     cp: roundPoint(curve?.cp || curve?.points?.[1]),
@@ -237,6 +305,48 @@ function normalizeCurve(curve) {
   if (curve?._chunkStart) normalized._chunkStart = true;
   if (curve?._chunkEnd) normalized._chunkEnd = true;
   return normalized;
+}
+
+function isCubicCurve(c) {
+  return !!(c && c.cp1 && c.cp2);
+}
+
+function isCubicLevel(level = LEVELS[currentLevel]) {
+  return level && level.pathType === 'cubic';
+}
+
+// Sample any curve regardless of kind — useful for generic polyline extraction,
+// path-length measurement, and render fallbacks.
+function sampleCurveAny(c, n = 50) {
+  if (isCubicCurve(c)) return sampleCubicBezier(c.p1, c.cp1, c.cp2, c.p2, n);
+  return sampleQuadraticBezier(c.p1, c.cp, c.p2, n);
+}
+
+// Exact quadratic → cubic upgrade. Preserves the curve shape pixel-for-pixel
+// because the quadratic Bezier is a proper subset of cubic Beziers under this
+// control-point mapping.
+function quadraticToCubic(c) {
+  const p1 = roundPoint(c.p1);
+  const p2 = roundPoint(c.p2);
+  return {
+    p1,
+    cp1: roundPoint({
+      x: c.p1.x + (2 / 3) * (c.cp.x - c.p1.x),
+      y: c.p1.y + (2 / 3) * (c.cp.y - c.p1.y),
+    }),
+    cp2: roundPoint({
+      x: c.p2.x + (2 / 3) * (c.cp.x - c.p2.x),
+      y: c.p2.y + (2 / 3) * (c.cp.y - c.p2.y),
+    }),
+    p2,
+    smooth: true,
+  };
+}
+
+function upgradeLevelToCubic(level) {
+  if (level.pathType === 'cubic') return;
+  level.curves = level.curves.map(c => (isCubicCurve(c) ? c : quadraticToCubic(c)));
+  level.pathType = 'cubic';
 }
 
 function clearFitStats(level = LEVELS[currentLevel]) {
@@ -299,8 +409,7 @@ function buildBrushFitConfig(smoothness) {
 function sampleCurveChain(curves, samplesPerCurve = 40) {
   const polyline = [];
   for (let i = 0; i < curves.length; i++) {
-    const c = curves[i];
-    const pts = sampleQuadraticBezier(c.p1, c.cp, c.p2, samplesPerCurve);
+    const pts = sampleCurveAny(curves[i], samplesPerCurve);
     for (let k = i === 0 ? 0 : 1; k < pts.length; k++) {
       polyline.push(pts[k]);
     }
@@ -356,6 +465,7 @@ function setWaypointMode(enabled) {
   if (enabled) {
     brushMode = false;
     brushSamples = [];
+    if (penMode) exitPenMode({ keepChanges: true });
     selectedCurve = -1;
     document.getElementById('brushBtn').classList.remove('active');
     document.getElementById('brush-bar').style.display = 'none';
@@ -371,6 +481,7 @@ function setBrushMode(enabled) {
   brushMode = enabled;
   if (enabled) {
     waypointMode = false;
+    if (penMode) exitPenMode({ keepChanges: true });
     selectedWaypoint = -1;
     document.getElementById('waypointBtn').classList.remove('active');
     document.getElementById('waypoint-bar').style.display = 'none';
@@ -381,13 +492,249 @@ function setBrushMode(enabled) {
   updateWaypointMeta();
 }
 
+// Enter pen mode. If the current level is quadratic and contains curves we
+// take a snapshot and upgrade to cubic so the pen tool has a consistent data
+// model to operate on. `confirm()` lets the user bail if they don't want the
+// upgrade.
+function enterPenMode() {
+  if (penMode) return true;
+  const level = LEVELS[currentLevel];
+  if (level.pathType !== 'cubic') {
+    if (level.curves.length > 0) {
+      const ok = window.confirm(
+        `本关将统一升级为三次贝塞尔以使用钢笔工具，已有 ${level.curves.length} 段二次曲线会被精确转换。继续？`
+      );
+      if (!ok) return false;
+    }
+    level._preCubicSnapshot = {
+      curves: JSON.parse(JSON.stringify(level.curves)),
+      pathType: level.pathType,
+      waypoints: JSON.parse(JSON.stringify(level.waypoints)),
+    };
+    upgradeLevelToCubic(level);
+    clearFitStats(level);
+  }
+  // Mutual exclusion
+  waypointMode = false;
+  brushMode = false;
+  brushSamples = [];
+  document.getElementById('waypointBtn').classList.remove('active');
+  document.getElementById('waypoint-bar').style.display = 'none';
+  document.getElementById('brushBtn').classList.remove('active');
+  document.getElementById('brush-bar').style.display = 'none';
+
+  penMode = true;
+  penState = level.curves.length > 0 ? 'EDITING' : 'IDLE';
+  penDrag = null;
+  pendingFirstAnchor = null;
+  penPreviewMouse = null;
+  penTouched = false;
+  selectedAnchor = null;
+  document.getElementById('penBtn').classList.add('active');
+  document.getElementById('pen-bar').style.display = 'block';
+  updateCanvasCursor();
+  buildCurveList();
+  updateWaypointMeta();
+  return true;
+}
+
+function exitPenMode({ keepChanges = false } = {}) {
+  if (!penMode) return;
+  finalizePenPath();
+  const level = LEVELS[currentLevel];
+  // Snapshot revert: if the user entered pen mode on a quadratic level but
+  // never touched anything, roll back to the original quadratic data.
+  if (!keepChanges && level._preCubicSnapshot && !penTouched) {
+    level.curves = level._preCubicSnapshot.curves.map(c => normalizeCurve(c, 'quadratic'));
+    level.pathType = level._preCubicSnapshot.pathType;
+    level.waypoints = level._preCubicSnapshot.waypoints;
+  }
+  delete level._preCubicSnapshot;
+  penMode = false;
+  penState = 'IDLE';
+  penDrag = null;
+  pendingFirstAnchor = null;
+  penPreviewMouse = null;
+  selectedAnchor = null;
+  ctrlTempSelect = false;
+  altBreakMirror = false;
+  shiftConstrain = false;
+  document.getElementById('penBtn').classList.remove('active');
+  document.getElementById('pen-bar').style.display = 'none';
+  updateCanvasCursor();
+  buildCurveList();
+  updateWaypointMeta();
+}
+
+function finalizePenPath() {
+  // Drop a stale pending-first-anchor — with only one anchor there is
+  // nothing to materialize.
+  pendingFirstAnchor = null;
+  if (penState !== 'IDLE') penState = 'EDITING';
+  penDrag = null;
+}
+
+function markPenTouched() {
+  if (penMode) penTouched = true;
+}
+
+// Pen tool: mouse-down dispatcher. Handles the four possible situations:
+//   1. Click on an existing handle/anchor while editing → grab it.
+//   2. Click empty space while IDLE → place pending first anchor.
+//   3. Click empty space while CREATING → append a new cubic segment.
+//   4. Click empty space while EDITING → start a fresh chain that continues
+//      the last curve (we treat it like CREATING with the last p2 as the
+//      implicit "last anchor").
+function handlePenMouseDown(g, e) {
+  const level = LEVELS[currentLevel];
+
+  // First: if the user clicked on an existing handle, grab it (same as the
+  // generic selection tool but scoped to cubic-curve anchors/handles).
+  if (penState === 'EDITING' || penState === 'CREATING' || penState === 'IDLE') {
+    const handle = findHandle(g.x, g.y);
+    if (handle && handle.type === 'curve') {
+      dragging = handle;
+      selectedCurve = handle.index;
+      if (handle.point === 'p1' || handle.point === 'p2') {
+        selectedAnchor = { curveIndex: handle.index, point: handle.point };
+      } else {
+        selectedAnchor = null;
+      }
+      selectedWaypoint = -1;
+      buildCurveList();
+      render();
+      return;
+    }
+  }
+
+  // Empty-space click: append/create.
+  if (penState === 'IDLE' && level.curves.length === 0) {
+    // Start a brand-new path. The very first anchor has no curve yet — stash
+    // it until the second click or drag materializes the first segment.
+    pendingFirstAnchor = {
+      x: Math.round(g.x),
+      y: Math.round(g.y),
+      outHandle: { x: Math.round(g.x), y: Math.round(g.y) },
+      smooth: true,
+    };
+    penDrag = {
+      anchorIndex: -1,
+      startX: Math.round(g.x),
+      startY: Math.round(g.y),
+      mirrorBroken: altBreakMirror,
+      moved: false,
+      outHandle: { x: Math.round(g.x), y: Math.round(g.y) },
+    };
+    dragging = { type: 'penDragHandle' };
+    penState = 'CREATING';
+    selectedAnchor = null;
+    markPenTouched();
+    render();
+    return;
+  }
+
+  // Determine the "last anchor" we're extending from: either the pending
+  // first anchor, or the last curve's p2.
+  let lastAnchor;
+  let lastOutHandle;
+  let lastSmooth = true;
+  if (pendingFirstAnchor) {
+    lastAnchor = { x: pendingFirstAnchor.x, y: pendingFirstAnchor.y };
+    lastOutHandle = pendingFirstAnchor.outHandle;
+    lastSmooth = pendingFirstAnchor.smooth !== false;
+  } else if (level.curves.length > 0) {
+    const lastCurve = level.curves[level.curves.length - 1];
+    lastAnchor = { x: lastCurve.p2.x, y: lastCurve.p2.y };
+    // Outgoing tangent = reflected incoming handle when smooth; otherwise we
+    // fall back to a degenerate handle (= the anchor itself), which renders a
+    // sharp-corner start for the new segment.
+    lastOutHandle = (lastCurve.smooth !== false)
+      ? { x: 2 * lastCurve.p2.x - lastCurve.cp2.x, y: 2 * lastCurve.p2.y - lastCurve.cp2.y }
+      : { x: lastCurve.p2.x, y: lastCurve.p2.y };
+    lastSmooth = lastCurve.smooth !== false;
+  } else {
+    // Edge case: EDITING with no curves yet. Behave like IDLE.
+    pendingFirstAnchor = {
+      x: Math.round(g.x), y: Math.round(g.y),
+      outHandle: { x: Math.round(g.x), y: Math.round(g.y) },
+      smooth: true,
+    };
+    penDrag = {
+      anchorIndex: -1,
+      startX: Math.round(g.x), startY: Math.round(g.y),
+      mirrorBroken: altBreakMirror, moved: false,
+      outHandle: { x: Math.round(g.x), y: Math.round(g.y) },
+    };
+    dragging = { type: 'penDragHandle' };
+    penState = 'CREATING';
+    markPenTouched();
+    render();
+    return;
+  }
+
+  // Materialize: create a new cubic segment from lastAnchor to the click point.
+  const newAnchor = { x: Math.round(g.x), y: Math.round(g.y) };
+  const newCurve = normalizeCurve({
+    p1: lastAnchor,
+    cp1: { x: lastOutHandle.x, y: lastOutHandle.y },
+    cp2: { x: newAnchor.x, y: newAnchor.y },   // corner at the new anchor until the user drags
+    p2: newAnchor,
+    smooth: true,
+  }, 'cubic');
+
+  // If there was a pending first anchor, this is the moment we integrate it
+  // into the curve chain — no extra bookkeeping needed since it becomes p1.
+  pendingFirstAnchor = null;
+
+  level.curves.push(newCurve);
+  selectedCurve = level.curves.length - 1;
+  selectedAnchor = { curveIndex: selectedCurve, point: 'p2' };
+  penDrag = {
+    anchorIndex: selectedCurve,
+    startX: newAnchor.x,
+    startY: newAnchor.y,
+    mirrorBroken: altBreakMirror,
+    moved: false,
+    outHandle: { x: newAnchor.x, y: newAnchor.y },
+  };
+  dragging = { type: 'penDragHandle' };
+  penState = 'CREATING';
+  clearFitStats(level);
+  markPenTouched();
+  buildCurveList();
+  render();
+}
+
+// Called on mouseup after a pen-tool DRAGGING_HANDLE session. If the mouse
+// never moved past the threshold we keep the anchor as a hard corner; if it
+// did, the handle state captured during mousemove is already baked into the
+// curve data, so there's nothing more to apply here beyond state book-keeping.
+function finishPenHandleDrag() {
+  if (!penDrag) {
+    penState = penState === 'IDLE' ? 'IDLE' : 'CREATING';
+    return;
+  }
+  if (!penDrag.moved) {
+    // Pure click, no drag: already a corner anchor; nothing to fix.
+  }
+  penDrag = null;
+  if (penState !== 'IDLE') penState = 'CREATING';
+}
+
 // ─── Export: curves → control point array ───────────────────────────
 function curvesToPointsArray(curves) {
   const arr = [];
   for (const c of curves) {
-    arr.push(roundPoint(c.p1));
-    arr.push(roundPoint(c.cp));
-    arr.push(roundPoint(c.p2));
+    if (isCubicCurve(c)) {
+      arr.push(roundPoint(c.p1));
+      arr.push(roundPoint(c.cp1));
+      arr.push(roundPoint(c.cp2));
+      arr.push(roundPoint(c.p2));
+    } else {
+      arr.push(roundPoint(c.p1));
+      arr.push(roundPoint(c.cp));
+      arr.push(roundPoint(c.p2));
+    }
   }
   return arr;
 }
@@ -482,7 +829,7 @@ function render() {
   // Draw each curve's track — thin clean line for editing
   for (let i = 0; i < level.curves.length; i++) {
     const c = level.curves[i];
-    const pts = sampleQuadraticBezier(c.p1, c.cp, c.p2, 50);
+    const pts = sampleCurveAny(c, 50);
     if (pts.length > 1) {
       ctx.beginPath();
       ctx.moveTo(pts[0].x, pts[0].y);
@@ -539,23 +886,39 @@ function render() {
     const col = CURVE_COLORS[i % CURVE_COLORS.length];
     const isSel = i === selectedCurve;
 
-    // Control point lines (dashed) to endpoints
-    ctx.setLineDash([4/scale, 3/scale]);
-    ctx.strokeStyle = col + '60';
-    ctx.lineWidth = 1 / scale;
-    ctx.beginPath();
-    ctx.moveTo(c.p1.x, c.p1.y);
-    ctx.lineTo(c.cp.x, c.cp.y);
-    ctx.lineTo(c.p2.x, c.p2.y);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    if (isCubicCurve(c)) {
+      // Cubic: two handles, each attaching to its own anchor.
+      ctx.setLineDash([4 / scale, 3 / scale]);
+      ctx.strokeStyle = col + '60';
+      ctx.lineWidth = 1 / scale;
+      ctx.beginPath();
+      ctx.moveTo(c.p1.x, c.p1.y);
+      ctx.lineTo(c.cp1.x, c.cp1.y);
+      ctx.moveTo(c.p2.x, c.p2.y);
+      ctx.lineTo(c.cp2.x, c.cp2.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
 
-    // Endpoints: circles with label (1A = entry, 1B = exit)
-    drawEndpoint(c.p1.x, c.p1.y, col, `${i + 1}A`, isSel);
-    drawEndpoint(c.p2.x, c.p2.y, col, `${i + 1}B`, isSel);
+      drawEndpoint(c.p1.x, c.p1.y, col, `${i + 1}A`, isSel || (selectedAnchor && selectedAnchor.curveIndex === i && selectedAnchor.point === 'p1'));
+      drawEndpoint(c.p2.x, c.p2.y, col, `${i + 1}B`, isSel || (selectedAnchor && selectedAnchor.curveIndex === i && selectedAnchor.point === 'p2'));
+      drawCubicHandle(c.cp1.x, c.cp1.y, col, `H${i + 1}a`, isSel);
+      drawCubicHandle(c.cp2.x, c.cp2.y, col, `H${i + 1}b`, isSel);
+    } else {
+      // Quadratic: single control point shared by both anchors.
+      ctx.setLineDash([4 / scale, 3 / scale]);
+      ctx.strokeStyle = col + '60';
+      ctx.lineWidth = 1 / scale;
+      ctx.beginPath();
+      ctx.moveTo(c.p1.x, c.p1.y);
+      ctx.lineTo(c.cp.x, c.cp.y);
+      ctx.lineTo(c.p2.x, c.p2.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
 
-    // Control point: diamond shape with label
-    drawControlPoint(c.cp.x, c.cp.y, col, `C${i + 1}`, isSel);
+      drawEndpoint(c.p1.x, c.p1.y, col, `${i + 1}A`, isSel);
+      drawEndpoint(c.p2.x, c.p2.y, col, `${i + 1}B`, isSel);
+      drawControlPoint(c.cp.x, c.cp.y, col, `C${i + 1}`, isSel);
+    }
   }
 
   // Smoothness indicators at join points
@@ -565,9 +928,13 @@ function render() {
     // Check if p2 of curve i joins p1 of curve i+1
     if (Math.hypot(cA.p2.x - cB.p1.x, cA.p2.y - cB.p1.y) < SNAP_DISTANCE / scale) {
       const jx = cA.p2.x, jy = cA.p2.y;
-      // Check G1: cpA, junction, cpB should be collinear
-      const dxA = cA.cp.x - jx, dyA = cA.cp.y - jy;
-      const dxB = cB.cp.x - jx, dyB = cB.cp.y - jy;
+      // G1 check: the incoming tangent handle and the outgoing tangent handle
+      // should be collinear. For quadratic the handles are cp; for cubic the
+      // incoming tangent is cA.cp2→p2 and outgoing is cB.p1→cp1.
+      const inHandle = isCubicCurve(cA) ? cA.cp2 : cA.cp;
+      const outHandle = isCubicCurve(cB) ? cB.cp1 : cB.cp;
+      const dxA = inHandle.x - jx, dyA = inHandle.y - jy;
+      const dxB = outHandle.x - jx, dyB = outHandle.y - jy;
       const lenA = Math.hypot(dxA, dyA) || 1;
       const lenB = Math.hypot(dxB, dyB) || 1;
       // Dot product of normalized vectors; 1.0 = perfectly aligned
@@ -683,7 +1050,7 @@ function render() {
   // Path length info — with background bar for readability
   let pathLen = 0;
   for (const c of level.curves) {
-    const pts = sampleQuadraticBezier(c.p1, c.cp, c.p2, 50);
+    const pts = sampleCurveAny(c, 50);
     for (let i = 1; i < pts.length; i++) pathLen += Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y);
   }
   const chainLen = (level._chainCount || 20) * BALL_SPACING;
@@ -697,8 +1064,94 @@ function render() {
   ctx.font = `bold ${13/scale}px -apple-system, sans-serif`;
   const fitInfo = level._fitStats?.segments ? `  |  拟合误差: ${level._fitStats.maxError.toFixed(1)}px` : '';
   const waypointInfo = level.waypoints.length > 0 ? `  |  点: ${level.waypoints.length}` : '';
-  const pathInfo = `路径: ${Math.round(pathLen)}px  |  球链: ${Math.round(chainLen)}px  |  剩余: ${Math.round(remaining)}px  |  曲线: ${level.curves.length}段${waypointInfo}${fitInfo}`;
+  const kindLabel = isCubicLevel(level) ? '三次' : '二次';
+  const pathInfo = `${kindLabel}  |  路径: ${Math.round(pathLen)}px  |  球链: ${Math.round(chainLen)}px  |  剩余: ${Math.round(remaining)}px  |  曲线: ${level.curves.length}段${waypointInfo}${fitInfo}`;
   ctx.fillText(pathInfo, 8, infoY + 8);
+
+  // Pen tool live preview — hover segment from the last anchor to the current
+  // mouse position, plus ghost visuals for any anchor/handle currently being
+  // dragged. Drawn last so it overlays the committed curves.
+  if (penMode && penPreviewMouse) {
+    drawPenPreview(level);
+  }
+
+  ctx.restore();
+}
+
+// Cubic handle endpoint: a small hollow circle, visually distinct from the
+// diamond used for quadratic control points.
+function drawCubicHandle(x, y, color, label, isSel) {
+  const r = (isSel ? 7 : 5) / scale;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, TAU);
+  ctx.fillStyle = '#0e1218';
+  ctx.fill();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = (isSel ? 2 : 1.5) / scale;
+  ctx.stroke();
+}
+
+// Live preview of what the pen tool would place on the next click. In
+// CREATING state we draw a dashed cubic curve from the last anchor through
+// the mouse; in DRAGGING_HANDLE state we draw the in-progress anchor's
+// tentative handle pair.
+function drawPenPreview(level) {
+  ctx.save();
+  const mouse = penPreviewMouse;
+
+  // Pending first anchor (no curve yet).
+  if (pendingFirstAnchor) {
+    ctx.setLineDash([4 / scale, 4 / scale]);
+    ctx.strokeStyle = 'rgba(240, 213, 122, 0.55)';
+    ctx.lineWidth = 1.5 / scale;
+    ctx.beginPath();
+    ctx.moveTo(pendingFirstAnchor.x, pendingFirstAnchor.y);
+    ctx.lineTo(mouse.x, mouse.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    drawEndpoint(pendingFirstAnchor.x, pendingFirstAnchor.y, '#f0d57a', 'A1', true);
+    // If the first anchor was placed with a drag, also show its outgoing handle.
+    if (pendingFirstAnchor.outHandle && (
+      pendingFirstAnchor.outHandle.x !== pendingFirstAnchor.x ||
+      pendingFirstAnchor.outHandle.y !== pendingFirstAnchor.y
+    )) {
+      ctx.setLineDash([3 / scale, 3 / scale]);
+      ctx.strokeStyle = 'rgba(240, 213, 122, 0.6)';
+      ctx.lineWidth = 1 / scale;
+      ctx.beginPath();
+      ctx.moveTo(pendingFirstAnchor.x, pendingFirstAnchor.y);
+      ctx.lineTo(pendingFirstAnchor.outHandle.x, pendingFirstAnchor.outHandle.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      drawCubicHandle(
+        pendingFirstAnchor.outHandle.x, pendingFirstAnchor.outHandle.y,
+        '#f0d57a', 'Ho', true
+      );
+    }
+  } else if (penState === 'CREATING' && level.curves.length > 0) {
+    // Show a ghost cubic curve from the last anchor's outgoing handle to the
+    // cursor. cp2 defaults to the cursor (corner entry on the next anchor).
+    const lastCurve = level.curves[level.curves.length - 1];
+    const anchor = lastCurve.p2;
+    const outHandle = lastCurve.cp2;
+    // Mirror the last incoming handle across the anchor to estimate a natural
+    // outgoing tangent only when the segment is marked smooth.
+    const startHandle = lastCurve.smooth !== false
+      ? { x: 2 * anchor.x - outHandle.x, y: 2 * anchor.y - outHandle.y }
+      : { x: anchor.x, y: anchor.y };
+    ctx.setLineDash([4 / scale, 4 / scale]);
+    ctx.strokeStyle = 'rgba(240, 213, 122, 0.55)';
+    ctx.lineWidth = 1.5 / scale;
+    ctx.beginPath();
+    ctx.moveTo(anchor.x, anchor.y);
+    ctx.bezierCurveTo(
+      startHandle.x, startHandle.y,
+      mouse.x, mouse.y,
+      mouse.x, mouse.y,
+    );
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
 
   ctx.restore();
 }
@@ -832,12 +1285,56 @@ function findHandle(gx, gy) {
     return { type: 'shooter' };
   }
 
-  // Check curve handles (reverse order so top-most is picked first)
+  // Pen mode: when multiple anchor/handle candidates are in range we pick the
+  // strictly closest one, with anchors getting a small priority bonus so
+  // clicking directly on an anchor circle never gets hijacked by a handle
+  // ring that happens to be nearby. This mirrors Illustrator's pen-tool
+  // picking behavior and is what the C-to-toggle-smooth shortcut relies on.
+  if (penMode) {
+    let best = null;
+    let bestScore = Infinity;
+    const ANCHOR_BONUS = 3 / scale; // make anchors win ties
+    for (let i = level.curves.length - 1; i >= 0; i--) {
+      const c = level.curves[i];
+      const candidates = isCubicCurve(c)
+        ? [
+            { point: 'p1',  x: c.p1.x,  y: c.p1.y,  isAnchor: true },
+            { point: 'p2',  x: c.p2.x,  y: c.p2.y,  isAnchor: true },
+            { point: 'cp1', x: c.cp1.x, y: c.cp1.y, isAnchor: false },
+            { point: 'cp2', x: c.cp2.x, y: c.cp2.y, isAnchor: false },
+          ]
+        : [
+            { point: 'p1', x: c.p1.x, y: c.p1.y, isAnchor: true },
+            { point: 'p2', x: c.p2.x, y: c.p2.y, isAnchor: true },
+            { point: 'cp', x: c.cp.x, y: c.cp.y, isAnchor: false },
+          ];
+      for (const cand of candidates) {
+        const d = Math.hypot(gx - cand.x, gy - cand.y);
+        if (d > threshold) continue;
+        const score = d - (cand.isAnchor ? ANCHOR_BONUS : 0);
+        if (score < bestScore) {
+          bestScore = score;
+          best = { type: 'curve', index: i, point: cand.point };
+        }
+      }
+    }
+    return best;
+  }
+
+  // Legacy order (non-pen mode): handles first so the quadratic workflow
+  // keeps working as before.
   for (let i = level.curves.length - 1; i >= 0; i--) {
     const c = level.curves[i];
-    if (Math.hypot(gx - c.cp.x, gy - c.cp.y) < threshold) return { type: 'curve', index: i, point: 'cp' };
-    if (Math.hypot(gx - c.p2.x, gy - c.p2.y) < threshold) return { type: 'curve', index: i, point: 'p2' };
-    if (Math.hypot(gx - c.p1.x, gy - c.p1.y) < threshold) return { type: 'curve', index: i, point: 'p1' };
+    if (isCubicCurve(c)) {
+      if (Math.hypot(gx - c.cp1.x, gy - c.cp1.y) < threshold) return { type: 'curve', index: i, point: 'cp1' };
+      if (Math.hypot(gx - c.cp2.x, gy - c.cp2.y) < threshold) return { type: 'curve', index: i, point: 'cp2' };
+      if (Math.hypot(gx - c.p2.x, gy - c.p2.y) < threshold) return { type: 'curve', index: i, point: 'p2' };
+      if (Math.hypot(gx - c.p1.x, gy - c.p1.y) < threshold) return { type: 'curve', index: i, point: 'p1' };
+    } else {
+      if (Math.hypot(gx - c.cp.x, gy - c.cp.y) < threshold) return { type: 'curve', index: i, point: 'cp' };
+      if (Math.hypot(gx - c.p2.x, gy - c.p2.y) < threshold) return { type: 'curve', index: i, point: 'p2' };
+      if (Math.hypot(gx - c.p1.x, gy - c.p1.y) < threshold) return { type: 'curve', index: i, point: 'p1' };
+    }
   }
   return null;
 }
@@ -888,6 +1385,194 @@ function mirrorControlPoint(junctionPt, sourceCp, targetCp) {
   const dy = sourceCp.y - junctionPt.y;
   targetCp.x = Math.round(junctionPt.x - dx);
   targetCp.y = Math.round(junctionPt.y - dy);
+}
+
+// Snap a handle vector to the nearest 45° multiple while preserving length.
+function constrain45(dx, dy) {
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-6) return { x: 0, y: 0 };
+  const angle = Math.atan2(dy, dx);
+  const step = Math.PI / 4;
+  const snapped = Math.round(angle / step) * step;
+  return { x: Math.cos(snapped) * len, y: Math.sin(snapped) * len };
+}
+
+// For a cubic level, find the curve whose anchor coincides with (curveIndex, point).
+// Returns { curveIndex, point } of the neighbor anchor that shares the same
+// location, or null. Only the immediate predecessor's p2 and successor's p1
+// are considered (the join model the editor already uses).
+function findCubicJoinNeighbor(curveIndex, point) {
+  const level = LEVELS[currentLevel];
+  const c = level.curves[curveIndex];
+  if (!c) return null;
+  const pt = c[point];
+  const tol = SNAP_DISTANCE / scale;
+  // Previous curve's p2 shares our p1
+  if (point === 'p1' && curveIndex > 0) {
+    const prev = level.curves[curveIndex - 1];
+    if (prev && Math.hypot(prev.p2.x - pt.x, prev.p2.y - pt.y) < tol) {
+      return { curveIndex: curveIndex - 1, point: 'p2' };
+    }
+  }
+  // Next curve's p1 shares our p2
+  if (point === 'p2' && curveIndex < level.curves.length - 1) {
+    const next = level.curves[curveIndex + 1];
+    if (next && Math.hypot(next.p1.x - pt.x, next.p1.y - pt.y) < tol) {
+      return { curveIndex: curveIndex + 1, point: 'p1' };
+    }
+  }
+  return null;
+}
+
+function handleCubicDrag(level, index, point, newX, newY, g) {
+  const c = level.curves[index];
+  if (point === 'p1' || point === 'p2') {
+    // Translate the anchor; handles attached to it move along by the same
+    // delta so the local shape is preserved (Illustrator behavior).
+    const oldX = c[point].x;
+    const oldY = c[point].y;
+    const snap = findSnapTarget(index, point, newX, newY);
+    if (snap) {
+      newX = snap.x;
+      newY = snap.y;
+    }
+    const dx = newX - oldX;
+    const dy = newY - oldY;
+    c[point].x = newX;
+    c[point].y = newY;
+    if (point === 'p1') {
+      c.cp1.x = Math.round(c.cp1.x + dx);
+      c.cp1.y = Math.round(c.cp1.y + dy);
+    } else {
+      c.cp2.x = Math.round(c.cp2.x + dx);
+      c.cp2.y = Math.round(c.cp2.y + dy);
+    }
+    // Sync the joined neighbor's anchor (and its attached handle).
+    const join = findCubicJoinNeighbor(index, point);
+    if (join) {
+      const neighbor = level.curves[join.curveIndex];
+      const neighborPoint = neighbor[join.point];
+      const nDx = newX - neighborPoint.x;
+      const nDy = newY - neighborPoint.y;
+      neighborPoint.x = newX;
+      neighborPoint.y = newY;
+      if (join.point === 'p1') {
+        neighbor.cp1.x = Math.round(neighbor.cp1.x + nDx);
+        neighbor.cp1.y = Math.round(neighbor.cp1.y + nDy);
+      } else {
+        neighbor.cp2.x = Math.round(neighbor.cp2.x + nDx);
+        neighbor.cp2.y = Math.round(neighbor.cp2.y + nDy);
+      }
+    }
+    return;
+  }
+
+  // Dragging a handle (cp1 or cp2).
+  const anchorPoint = point === 'cp1' ? c.p1 : c.p2;
+
+  // Apply 45° constraint to the handle vector relative to its anchor.
+  if (shiftConstrain) {
+    const snapped = constrain45(newX - anchorPoint.x, newY - anchorPoint.y);
+    newX = Math.round(anchorPoint.x + snapped.x);
+    newY = Math.round(anchorPoint.y + snapped.y);
+  }
+  c[point].x = newX;
+  c[point].y = newY;
+
+  // If Alt is held, explicitly break symmetry on this anchor.
+  if (altBreakMirror) {
+    if (point === 'cp1') {
+      const join = findCubicJoinNeighbor(index, 'p1');
+      if (join) level.curves[join.curveIndex].smooth = false;
+    } else {
+      c.smooth = false;
+    }
+    return;
+  }
+
+  // Mirror the partner handle on the other side of the anchor so the curve
+  // stays G1 across the join — but only when `smooth` says we should.
+  if (point === 'cp1') {
+    const join = findCubicJoinNeighbor(index, 'p1');
+    if (join) {
+      const neighbor = level.curves[join.curveIndex];
+      if (neighbor.smooth !== false) {
+        mirrorControlPoint(c.p1, c.cp1, neighbor.cp2);
+      }
+    }
+  } else {
+    // point === 'cp2'; the partner is the next curve's cp1 (if joined & smooth).
+    if (c.smooth !== false) {
+      const join = findCubicJoinNeighbor(index, 'p2');
+      if (join) {
+        const neighbor = level.curves[join.curveIndex];
+        mirrorControlPoint(c.p2, c.cp2, neighbor.cp1);
+      }
+    }
+  }
+}
+
+// Pen tool: called during DRAGGING_HANDLE. Pulls the anchor's cp2 into place
+// (the handle the cursor is drawing "out of" the anchor) and, when symmetry
+// is not broken, mirrors it to produce the incoming handle that the previous
+// segment should end with.
+function handlePenHandleDrag(level, g) {
+  if (!penDrag) return;
+  const drag = penDrag;
+  const dx = g.x - drag.startX;
+  const dy = g.y - drag.startY;
+  if (!drag.moved && (dx * dx + dy * dy) < PEN_DRAG_THRESHOLD * PEN_DRAG_THRESHOLD) {
+    return;
+  }
+  drag.moved = true;
+
+  // Apply Shift constraint on the outgoing-handle vector.
+  let outX = g.x;
+  let outY = g.y;
+  if (shiftConstrain) {
+    const snapped = constrain45(g.x - drag.startX, g.y - drag.startY);
+    outX = drag.startX + snapped.x;
+    outY = drag.startY + snapped.y;
+  }
+
+  const anchor = { x: drag.startX, y: drag.startY };
+  const out = { x: Math.round(outX), y: Math.round(outY) };
+  const inHandle = {
+    x: Math.round(2 * anchor.x - out.x),
+    y: Math.round(2 * anchor.y - out.y),
+  };
+
+  if (drag.anchorIndex === -1) {
+    // Dragging the very first anchor's handle — still in pendingFirstAnchor
+    // land (no curve segment exists yet).
+    if (pendingFirstAnchor) {
+      pendingFirstAnchor.outHandle = out;
+      pendingFirstAnchor.smooth = !altBreakMirror;
+    }
+    return;
+  }
+
+  const c = level.curves[drag.anchorIndex];
+  if (!c || !isCubicCurve(c)) return;
+
+  if (altBreakMirror) {
+    // Independent handles: cp2 is the incoming side (already set to the
+    // anchor = corner), and we stash the outgoing handle on the curve so
+    // the NEXT segment picks it up via lastCurve.cp2 reflected. For a clean
+    // "sharp in, smooth out" feel we keep cp2 pinned to p2 and instead
+    // remember the outgoing direction on penDrag so the next segment's cp1
+    // can use it directly.
+    c.cp2 = { x: c.p2.x, y: c.p2.y };
+    c.smooth = false;
+    drag.outHandle = out;
+  } else {
+    // Symmetric: cp2 = mirror of the out handle, so that the curve approaches
+    // the anchor along the line through (in, anchor, out).
+    c.cp2 = inHandle;
+    c.smooth = true;
+    drag.outHandle = out;
+  }
+  markPenTouched();
 }
 
 function smoothCurveChainJoints(curves, tolerance = SNAP_DISTANCE / scale) {
@@ -980,9 +1665,72 @@ function smoothCurveChainJoints(curves, tolerance = SNAP_DISTANCE / scale) {
   return fixed;
 }
 
+// Cubic variant: for every joint where two cubic curves meet, align cp2
+// (incoming handle) and next.cp1 (outgoing handle) along a shared tangent
+// direction. Keeps each side's handle length roughly intact so the overall
+// shape barely moves.
+function smoothCubicChainJoints(curves, tolerance = SNAP_DISTANCE / scale) {
+  let fixed = 0;
+  for (let i = 0; i < curves.length - 1; i++) {
+    const a = curves[i];
+    const b = curves[i + 1];
+    if (!isCubicCurve(a) || !isCubicCurve(b)) continue;
+    if (a._chunkEnd || b._chunkStart) continue;
+    const gap = Math.hypot(a.p2.x - b.p1.x, a.p2.y - b.p1.y);
+    if (gap > tolerance) continue;
+
+    const jx = Math.round((a.p2.x + b.p1.x) * 0.5);
+    const jy = Math.round((a.p2.y + b.p1.y) * 0.5);
+    a.p2.x = jx; a.p2.y = jy;
+    b.p1.x = jx; b.p1.y = jy;
+
+    // Incoming handle (from a.cp2 toward joint) and outgoing (from joint
+    // toward b.cp1). Their tangent directions should be opposite.
+    let inX = jx - a.cp2.x;
+    let inY = jy - a.cp2.y;
+    let outX = b.cp1.x - jx;
+    let outY = b.cp1.y - jy;
+    let inLen = Math.hypot(inX, inY);
+    let outLen = Math.hypot(outX, outY);
+    if (inLen < 1e-4 && outLen < 1e-4) continue;
+    if (inLen < 1e-4) { inX = outX; inY = outY; inLen = outLen; }
+    if (outLen < 1e-4) { outX = inX; outY = inY; outLen = inLen; }
+    inX /= inLen; inY /= inLen;
+    outX /= outLen; outY /= outLen;
+
+    // Shared tangent = average of the two one-sided directions.
+    let tx = inX + outX;
+    let ty = inY + outY;
+    let tLen = Math.hypot(tx, ty);
+    if (tLen < 1e-4) { tx = outX; ty = outY; tLen = 1; }
+    tx /= tLen; ty /= tLen;
+
+    a.cp2.x = Math.round(jx - tx * inLen);
+    a.cp2.y = Math.round(jy - ty * inLen);
+    b.cp1.x = Math.round(jx + tx * outLen);
+    b.cp1.y = Math.round(jy + ty * outLen);
+    a.smooth = true;
+    b.smooth = true;
+    fixed++;
+  }
+  for (const c of curves) {
+    c.p1 = roundPoint(c.p1);
+    c.cp1 = roundPoint(c.cp1);
+    c.cp2 = roundPoint(c.cp2);
+    c.p2 = roundPoint(c.p2);
+    delete c._chunkStart;
+    delete c._chunkEnd;
+  }
+  return fixed;
+}
+
 function updateCanvasCursor() {
   if (spaceHeld) {
     cv.style.cursor = dragging === 'pan' ? 'grabbing' : 'grab';
+  } else if (penMode && ctrlTempSelect) {
+    cv.style.cursor = 'default';
+  } else if (penMode) {
+    cv.style.cursor = 'crosshair';
   } else if (brushMode || waypointMode) {
     cv.style.cursor = 'crosshair';
   } else {
@@ -993,20 +1741,184 @@ function updateCanvasCursor() {
 window.addEventListener('keydown', e => {
   if (isTextInputFocused()) return;
   if (e.code === 'Space' && !e.repeat) { spaceHeld = true; updateCanvasCursor(); }
-  if (e.code === 'Escape' && brushMode) { window.toggleBrush(); }
-  if (e.code === 'Escape' && waypointMode) { window.toggleWaypoints(); }
+  // Pen-tool modifier keys. We track these globally so mousemove/mousedown
+  // can read them without needing to thread the event through helpers.
+  if (penMode) {
+    if (e.key === 'Control' || e.key === 'Meta') ctrlTempSelect = true;
+    if (e.key === 'Alt') altBreakMirror = true;
+    if (e.key === 'Shift') shiftConstrain = true;
+    if (e.code === 'Enter' || e.code === 'NumpadEnter') {
+      e.preventDefault();
+      finalizePenPath();
+      render();
+      return;
+    }
+    if (e.code === 'Escape') {
+      e.preventDefault();
+      finalizePenPath();
+      render();
+      return;
+    }
+    if (e.code === 'Backspace' || e.code === 'Delete') {
+      e.preventDefault();
+      handlePenBackspace();
+      return;
+    }
+    if (e.code === 'KeyC') {
+      if (selectedAnchor) {
+        e.preventDefault();
+        toggleAnchorSmooth(selectedAnchor);
+      }
+      return;
+    }
+  } else {
+    if (e.code === 'Escape' && brushMode) { window.toggleBrush(); }
+    if (e.code === 'Escape' && waypointMode) { window.toggleWaypoints(); }
+  }
   if ((e.code === 'Delete' || e.code === 'Backspace') && waypointMode && selectedWaypoint >= 0) {
     e.preventDefault();
     window.deleteWaypoint();
   }
-  if ((e.code === 'Delete' || e.code === 'Backspace') && !waypointMode && !brushMode && selectedCurve >= 0) {
+  if ((e.code === 'Delete' || e.code === 'Backspace') && !waypointMode && !brushMode && !penMode && selectedCurve >= 0) {
     e.preventDefault();
     window.deleteCurve();
   }
 });
 window.addEventListener('keyup', e => {
   if (e.code === 'Space') { spaceHeld = false; updateCanvasCursor(); }
+  if (penMode) {
+    if (e.key === 'Control' || e.key === 'Meta') ctrlTempSelect = false;
+    if (e.key === 'Alt') altBreakMirror = false;
+    if (e.key === 'Shift') shiftConstrain = false;
+  }
 });
+
+function handlePenBackspace() {
+  const level = LEVELS[currentLevel];
+  if (pendingFirstAnchor) {
+    pendingFirstAnchor = null;
+    penState = level.curves.length > 0 ? 'CREATING' : 'IDLE';
+    markPenTouched();
+    render();
+    return;
+  }
+  if (level.curves.length === 0) {
+    penState = 'IDLE';
+    return;
+  }
+  level.curves.pop();
+  selectedCurve = level.curves.length - 1;
+  selectedAnchor = selectedCurve >= 0 ? { curveIndex: selectedCurve, point: 'p2' } : null;
+  penState = level.curves.length > 0 ? 'CREATING' : 'IDLE';
+  clearFitStats(level);
+  markPenTouched();
+  buildCurveList();
+  render();
+}
+
+// Flip the "visual anchor" at the given (curveIndex, point) between corner
+// (independent handles, often collapsed to the anchor) and smooth (handles
+// collinear through the anchor with reasonable lengths derived from the
+// neighboring chords). A visual anchor corresponds to TWO data points when
+// it's a join: prev.p2 + curr.p1 share a location — and BOTH of their
+// adjacent handles need to move together for a visible smoothing to appear.
+function toggleAnchorSmooth(sel) {
+  const level = LEVELS[currentLevel];
+  const c = level.curves[sel.curveIndex];
+  if (!c || !isCubicCurve(c)) return;
+
+  // Resolve the two curves meeting at this visual anchor: `incoming` ends at
+  // the anchor (so its cp2 is the incoming handle), `outgoing` starts at the
+  // anchor (so its cp1 is the outgoing handle). At endpoints of the whole
+  // chain one of them is null.
+  let incoming = null;
+  let outgoing = null;
+  if (sel.point === 'p1') {
+    outgoing = c;
+    const join = findCubicJoinNeighbor(sel.curveIndex, 'p1');
+    if (join) incoming = level.curves[join.curveIndex];
+  } else {
+    incoming = c;
+    const join = findCubicJoinNeighbor(sel.curveIndex, 'p2');
+    if (join) outgoing = level.curves[join.curveIndex];
+  }
+
+  // Determine current kind: if the handle on either side is collapsed onto
+  // the anchor it's a corner; anything else we treat as already smooth and
+  // collapse it back to a corner.
+  const anchor = outgoing ? outgoing.p1 : incoming.p2;
+  const inHandleLen = incoming
+    ? Math.hypot(incoming.cp2.x - anchor.x, incoming.cp2.y - anchor.y)
+    : 0;
+  const outHandleLen = outgoing
+    ? Math.hypot(outgoing.cp1.x - anchor.x, outgoing.cp1.y - anchor.y)
+    : 0;
+  const isCornerNow = inHandleLen < 1 && outHandleLen < 1;
+
+  if (isCornerNow) {
+    // Corner → smooth. Build a tangent from the two chords meeting at the
+    // anchor so the resulting curve bulges naturally.
+    let inDir = { x: 0, y: 0 };
+    let inChord = 0;
+    if (incoming) {
+      const dx = anchor.x - incoming.p1.x;
+      const dy = anchor.y - incoming.p1.y;
+      inChord = Math.hypot(dx, dy) || 1;
+      inDir = { x: dx / inChord, y: dy / inChord };
+    }
+    let outDir = { x: 0, y: 0 };
+    let outChord = 0;
+    if (outgoing) {
+      const dx = outgoing.p2.x - anchor.x;
+      const dy = outgoing.p2.y - anchor.y;
+      outChord = Math.hypot(dx, dy) || 1;
+      outDir = { x: dx / outChord, y: dy / outChord };
+    }
+    let tx, ty;
+    if (incoming && outgoing) {
+      tx = inDir.x + outDir.x;
+      ty = inDir.y + outDir.y;
+      const len = Math.hypot(tx, ty);
+      if (len < 1e-4) {
+        tx = outDir.x;
+        ty = outDir.y;
+      } else {
+        tx /= len;
+        ty /= len;
+      }
+    } else if (incoming) {
+      tx = inDir.x; ty = inDir.y;
+    } else {
+      tx = outDir.x; ty = outDir.y;
+    }
+
+    const HANDLE_FRAC = 0.35;
+    const inLen = Math.max(8, inChord * HANDLE_FRAC);
+    const outLen = Math.max(8, outChord * HANDLE_FRAC);
+    if (incoming) {
+      incoming.cp2 = roundPoint({ x: anchor.x - tx * inLen, y: anchor.y - ty * inLen });
+      incoming.smooth = true;
+    }
+    if (outgoing) {
+      outgoing.cp1 = roundPoint({ x: anchor.x + tx * outLen, y: anchor.y + ty * outLen });
+      outgoing.smooth = true;
+    }
+  } else {
+    // Smooth → corner. Collapse both handles onto the anchor.
+    if (incoming) {
+      incoming.cp2 = { x: anchor.x, y: anchor.y };
+      incoming.smooth = false;
+    }
+    if (outgoing) {
+      outgoing.cp1 = { x: anchor.x, y: anchor.y };
+      outgoing.smooth = false;
+    }
+  }
+  clearFitStats(level);
+  markPenTouched();
+  buildCurveList();
+  render();
+}
 
 cv.addEventListener('mousedown', e => {
   if (e.button === 1 || (e.button === 0 && spaceHeld)) {
@@ -1016,10 +1928,19 @@ cv.addEventListener('mousedown', e => {
     e.preventDefault();
     return;
   }
-  // Alt+click to drag reference image
-  if (e.altKey && refImage) {
+  // Alt+click to drag reference image — but only when NOT in pen mode,
+  // because pen uses Alt as a modifier rather than a standalone shortcut.
+  if (e.altKey && refImage && !penMode) {
     dragging = 'refImage';
     dragStart = { x: e.offsetX, y: e.offsetY, refImgX, refImgY };
+    e.preventDefault();
+    return;
+  }
+  // Pen mode: placement / handle-drag / edit dispatch (runs before brush and
+  // waypoint checks so it owns the canvas while active).
+  if (penMode && e.button === 0 && !ctrlTempSelect) {
+    const g = screenToGame(e.offsetX, e.offsetY);
+    handlePenMouseDown(g, e);
     e.preventDefault();
     return;
   }
@@ -1076,8 +1997,17 @@ cv.addEventListener('mousedown', e => {
 });
 
 cv.addEventListener('mousemove', e => {
-  if (!dragging) return;
   const g = screenToGame(e.offsetX, e.offsetY);
+  // Pen tool always tracks the cursor so the live preview stays responsive
+  // even when no drag is in progress.
+  if (penMode) {
+    penPreviewMouse = g;
+    if (!dragging) {
+      render();
+      return;
+    }
+  }
+  if (!dragging) return;
 
   if (dragging === 'pan') {
     panX = dragStart.panX + (e.offsetX - dragStart.x);
@@ -1127,45 +2057,55 @@ cv.addEventListener('mousemove', e => {
     let newX = Math.round(g.x);
     let newY = Math.round(g.y);
 
-    if (point === 'p1' || point === 'p2') {
-      const snap = findSnapTarget(index, point, newX, newY);
-      if (snap) {
-        newX = snap.x;
-        newY = snap.y;
-      }
-
-      c[point].x = newX;
-      c[point].y = newY;
-
-      // Sync joined endpoints and auto-mirror control points for G1 continuity
-      const join = findJoinNeighbor(index, point);
-      if (join) {
-        const neighborCurve = level.curves[join.curveIndex];
-        // Sync endpoint position
-        neighborCurve[join.point].x = newX;
-        neighborCurve[join.point].y = newY;
-        // Mirror: current curve's cp → neighbor's cp across the junction
-        mirrorControlPoint(c[point], c.cp, neighborCurve.cp);
-      }
+    if (isCubicCurve(c)) {
+      handleCubicDrag(level, index, point, newX, newY, g);
     } else {
-      // Dragging control point (cp)
-      c.cp.x = newX;
-      c.cp.y = newY;
+      if (point === 'p1' || point === 'p2') {
+        const snap = findSnapTarget(index, point, newX, newY);
+        if (snap) {
+          newX = snap.x;
+          newY = snap.y;
+        }
 
-      // Auto-mirror: check if p1 side is joined → mirror neighbor's cp across p1
-      const joinP1 = findJoinNeighbor(index, 'p1');
-      if (joinP1) {
-        mirrorControlPoint(c.p1, c.cp, level.curves[joinP1.curveIndex].cp);
-      }
+        c[point].x = newX;
+        c[point].y = newY;
 
-      // Check if p2 side is joined → mirror neighbor's cp across p2
-      const joinP2 = findJoinNeighbor(index, 'p2');
-      if (joinP2) {
-        mirrorControlPoint(c.p2, c.cp, level.curves[joinP2.curveIndex].cp);
+        // Sync joined endpoints and auto-mirror control points for G1 continuity
+        const join = findJoinNeighbor(index, point);
+        if (join) {
+          const neighborCurve = level.curves[join.curveIndex];
+          // Sync endpoint position
+          neighborCurve[join.point].x = newX;
+          neighborCurve[join.point].y = newY;
+          // Mirror: current curve's cp → neighbor's cp across the junction
+          mirrorControlPoint(c[point], c.cp, neighborCurve.cp);
+        }
+      } else {
+        // Dragging control point (cp)
+        c.cp.x = newX;
+        c.cp.y = newY;
+
+        // Auto-mirror: check if p1 side is joined → mirror neighbor's cp across p1
+        const joinP1 = findJoinNeighbor(index, 'p1');
+        if (joinP1) {
+          mirrorControlPoint(c.p1, c.cp, level.curves[joinP1.curveIndex].cp);
+        }
+
+        // Check if p2 side is joined → mirror neighbor's cp across p2
+        const joinP2 = findJoinNeighbor(index, 'p2');
+        if (joinP2) {
+          mirrorControlPoint(c.p2, c.cp, level.curves[joinP2.curveIndex].cp);
+        }
       }
     }
     clearFitStats(level);
     updateWaypointMeta();
+    markPenTouched();
+  } else if (dragging.type === 'penDragHandle') {
+    // Pen tool: the most recently placed anchor is being pulled into a live
+    // handle. cp2 of the just-created segment receives a mirrored position so
+    // the curve smoothly arrives at the anchor from the cursor direction.
+    handlePenHandleDrag(level, g);
   }
   render();
 });
@@ -1174,6 +2114,9 @@ cv.addEventListener('mouseup', () => {
   if (dragging === 'brush') {
     finalizeBrushStroke();
   }
+  if (dragging && dragging.type === 'penDragHandle') {
+    finishPenHandleDrag();
+  }
   dragging = null;
   updateCanvasCursor();
 });
@@ -1181,7 +2124,11 @@ cv.addEventListener('mouseleave', () => {
   if (dragging === 'brush') {
     finalizeBrushStroke();
   }
+  if (dragging && dragging.type === 'penDragHandle') {
+    finishPenHandleDrag();
+  }
   dragging = null;
+  if (penMode) penPreviewMouse = null;
   updateCanvasCursor();
 });
 
@@ -1212,7 +2159,10 @@ function finalizeBrushStroke() {
 
   const smoothness = Number(document.getElementById('brushSmooth').value);
   const result = fitBrushStrokeToCurves(samples, smoothness);
-  const newCurves = result.curves.map(normalizeCurve);
+  const cubicMode = isCubicLevel(level);
+  const newCurves = cubicMode
+    ? result.curves.map(c => quadraticToCubic(normalizeCurve(c)))
+    : result.curves.map(c => normalizeCurve(c));
   if (joinedToExisting && newCurves.length > 0) delete newCurves[0]._chunkStart;
   if (newCurves.length === 0) {
     render();
@@ -1220,7 +2170,11 @@ function finalizeBrushStroke() {
   }
 
   level.curves.push(...newCurves);
-  smoothCurveChainJoints(level.curves);
+  if (cubicMode) {
+    smoothCubicChainJoints(level.curves);
+  } else {
+    smoothCurveChainJoints(level.curves);
+  }
   if (level.waypoints.length === 0) {
     level.waypoints = extractPolylineWaypoints(level.curves, 12);
   }
@@ -1257,25 +2211,48 @@ const curveListEl = document.getElementById('curve-list');
 
 window.addCurve = function() {
   const level = LEVELS[currentLevel];
-  const newCurve = {};
+  let newCurve;
 
   if (level.curves.length === 0) {
     // First curve: place near top-right (entry point)
-    newCurve.p1 = { x: 395, y: 170 };
-    newCurve.cp = { x: 215, y: 170 };
-    newCurve.p2 = { x: 215, y: 350 };
+    if (isCubicLevel(level)) {
+      newCurve = normalizeCurve({
+        p1: { x: 395, y: 170 },
+        cp1: { x: 335, y: 170 },
+        cp2: { x: 275, y: 170 },
+        p2: { x: 215, y: 350 },
+        smooth: true,
+      }, 'cubic');
+    } else {
+      newCurve = normalizeCurve({
+        p1: { x: 395, y: 170 },
+        cp: { x: 215, y: 170 },
+        p2: { x: 215, y: 350 },
+      });
+    }
   } else {
     const lastP2 = level.curves[level.curves.length - 1].p2;
-    newCurve.p1 = { x: lastP2.x, y: lastP2.y };
-    // Control point: offset to the side
-    newCurve.cp = { x: lastP2.x + 120, y: lastP2.y + 80 };
-    // End point: below
-    newCurve.p2 = { x: lastP2.x, y: lastP2.y + 180 };
+    if (isCubicLevel(level)) {
+      newCurve = normalizeCurve({
+        p1: { x: lastP2.x, y: lastP2.y },
+        cp1: { x: lastP2.x + 60, y: lastP2.y + 40 },
+        cp2: { x: lastP2.x + 60, y: lastP2.y + 140 },
+        p2: { x: lastP2.x, y: lastP2.y + 180 },
+        smooth: true,
+      }, 'cubic');
+    } else {
+      newCurve = normalizeCurve({
+        p1: { x: lastP2.x, y: lastP2.y },
+        cp: { x: lastP2.x + 120, y: lastP2.y + 80 },
+        p2: { x: lastP2.x, y: lastP2.y + 180 },
+      });
+    }
   }
 
-  level.curves.push(normalizeCurve(newCurve));
+  level.curves.push(newCurve);
   clearFitStats(level);
   selectedCurve = level.curves.length - 1;
+  if (penMode) markPenTouched();
   buildCurveList();
   updateWaypointMeta();
   render();
@@ -1305,14 +2282,19 @@ window.clearAll = function() {
 };
 
 window.toggleWaypoints = function() {
-  setWaypointMode(!waypointMode);
-  dragging = null;
-  if (waypointMode && LEVELS[currentLevel].waypoints.length === 0 && LEVELS[currentLevel].curves.length > 0) {
-    LEVELS[currentLevel].waypoints = extractPolylineWaypoints(LEVELS[currentLevel].curves, Number(document.getElementById('waypointError').value) * 1.2);
-    selectedWaypoint = LEVELS[currentLevel].waypoints.length > 0 ? 0 : -1;
-    buildCurveList();
-    updateWaypointMeta();
+  if (waypointMode) {
+    setWaypointMode(false);
+  } else {
+    if (penMode) exitPenMode({ keepChanges: true });
+    setWaypointMode(true);
+    if (LEVELS[currentLevel].waypoints.length === 0 && LEVELS[currentLevel].curves.length > 0) {
+      LEVELS[currentLevel].waypoints = extractPolylineWaypoints(LEVELS[currentLevel].curves, Number(document.getElementById('waypointError').value) * 1.2);
+      selectedWaypoint = LEVELS[currentLevel].waypoints.length > 0 ? 0 : -1;
+      buildCurveList();
+      updateWaypointMeta();
+    }
   }
+  dragging = null;
   updateCanvasCursor();
   render();
 };
@@ -1342,10 +2324,16 @@ window.fitWaypoints = function() {
   const level = LEVELS[currentLevel];
   if (level.waypoints.length < 2) return;
   const result = fitQuadraticChain(level.waypoints, buildWaypointFitConfig());
-  const newCurves = result.curves.map(normalizeCurve);
-  if (newCurves.length === 0) return;
-  level.curves = newCurves;
-  smoothCurveChainJoints(level.curves);
+  if (result.curves.length === 0) return;
+  // Fit always runs in quadratic space for the established Catmull-Rom→tangent
+  // workflow. When the level is cubic we immediately upgrade the result so the
+  // user stays in a single data model.
+  if (isCubicLevel(level)) {
+    level.curves = result.curves.map(c => quadraticToCubic(normalizeCurve(c)));
+  } else {
+    level.curves = result.curves.map(c => normalizeCurve(c));
+    smoothCurveChainJoints(level.curves);
+  }
   setFitStats(level, 'waypoint', result.stats, buildWaypointFitConfig());
   selectedCurve = level.curves.length - 1;
   buildCurveList();
@@ -1375,6 +2363,16 @@ window.extractWaypointsFromCurves = function() {
 window.smoothJoints = function() {
   const level = LEVELS[currentLevel];
   if (level.curves.length < 2) return;
+  if (isCubicLevel(level)) {
+    const fixed = smoothCubicChainJoints(level.curves);
+    if (fixed > 0) {
+      buildCurveList();
+      clearFitStats(level);
+      updateWaypointMeta();
+      render();
+    }
+    return;
+  }
   const fixed = smoothCurveChainJoints(level.curves);
 
   if (fixed > 0) {
@@ -1424,11 +2422,12 @@ window.refitPath = function() {
   const newCurves = [];
   let maxError = 0;
   let chunkCount = 0;
+  const cubicMode = isCubicLevel(level);
   for (const run of runs) {
     const polyline = [];
     for (let i = 0; i < run.length; i++) {
       const c = run[i];
-      const pts = sampleQuadraticBezier(c.p1, c.cp, c.p2, 40);
+      const pts = sampleCurveAny(c, 40);
       // Drop the first point on every segment after the first to avoid
       // duplicating the shared joint vertex.
       for (let k = (i === 0 ? 0 : 1); k < pts.length; k++) {
@@ -1438,7 +2437,11 @@ window.refitPath = function() {
     if (polyline.length < 2) continue;
     const fitted = fitQuadraticChain(polyline, buildBrushFitConfig(smoothness));
     if (fitted.curves.length > 0) {
-      newCurves.push(...fitted.curves.map(normalizeCurve));
+      if (cubicMode) {
+        newCurves.push(...fitted.curves.map(c => quadraticToCubic(normalizeCurve(c))));
+      } else {
+        newCurves.push(...fitted.curves.map(normalizeCurve));
+      }
       maxError = Math.max(maxError, fitted.stats?.maxError || 0);
       chunkCount += fitted.stats?.chunks || 1;
     }
@@ -1446,7 +2449,11 @@ window.refitPath = function() {
 
   if (newCurves.length === 0) return;
   level.curves = newCurves;
-  smoothCurveChainJoints(level.curves);
+  if (cubicMode) {
+    smoothCubicChainJoints(level.curves);
+  } else {
+    smoothCurveChainJoints(level.curves);
+  }
   level.waypoints = extractPolylineWaypoints(level.curves, Number(document.getElementById('waypointError').value) * 1.15);
   setFitStats(level, 'refit', {
     segments: newCurves.length,
@@ -1466,6 +2473,16 @@ window.toggleBrush = function() {
   if (dragging === 'brush') brushSamples = [];
   dragging = null;
   updateCanvasCursor();
+  render();
+};
+
+window.togglePen = function() {
+  if (penMode) {
+    exitPenMode();
+  } else {
+    enterPenMode();
+  }
+  dragging = null;
   render();
 };
 
@@ -1557,9 +2574,14 @@ const tabsEl = document.getElementById('levelTabs');
 
 function switchLevel(index, activeBtn = null) {
   if (!Number.isFinite(index) || index < 0 || index >= LEVELS.length) return;
+  // If the pen tool is active, gracefully exit it on the current level before
+  // moving on — this either commits or reverts the snapshot and prevents the
+  // snapshot from leaking into the next level.
+  if (penMode) exitPenMode();
   currentLevel = index;
   selectedCurve = -1;
   selectedWaypoint = -1;
+  selectedAnchor = null;
   document.querySelectorAll('.lv-tab').forEach(b => b.classList.remove('active'));
   const btn = activeBtn || tabsEl.querySelector(`.lv-tab[data-level="${index}"]`);
   if (btn) btn.classList.add('active');
@@ -1590,11 +2612,22 @@ let fileHandle = null; // File System Access API handle
 function levelsToJson() {
   return JSON.stringify(LEVELS.map((lv, i) => ({
     name: lv.name,
-    curves: lv.curves.map(c => ({
-      p1: { x: Math.round(c.p1.x), y: Math.round(c.p1.y) },
-      cp: { x: Math.round(c.cp.x), y: Math.round(c.cp.y) },
-      p2: { x: Math.round(c.p2.x), y: Math.round(c.p2.y) },
-    })),
+    pathType: lv.pathType || 'quadratic',
+    curves: lv.curves.map(c => (
+      isCubicCurve(c)
+        ? {
+            p1: { x: Math.round(c.p1.x), y: Math.round(c.p1.y) },
+            cp1: { x: Math.round(c.cp1.x), y: Math.round(c.cp1.y) },
+            cp2: { x: Math.round(c.cp2.x), y: Math.round(c.cp2.y) },
+            p2: { x: Math.round(c.p2.x), y: Math.round(c.p2.y) },
+            smooth: c.smooth !== false,
+          }
+        : {
+            p1: { x: Math.round(c.p1.x), y: Math.round(c.p1.y) },
+            cp: { x: Math.round(c.cp.x), y: Math.round(c.cp.y) },
+            p2: { x: Math.round(c.p2.x), y: Math.round(c.p2.y) },
+          }
+    )),
     waypoints: lv.waypoints.map(pt => ({ x: Math.round(pt.x), y: Math.round(pt.y) })),
     shooterPos: lv.shooterPos,
   })), null, 2);
@@ -1603,9 +2636,17 @@ function levelsToJson() {
 function loadLevelsFromData(data) {
   for (let i = 0; i < Math.min(data.length, LEVELS.length); i++) {
     LEVELS[i].name = data[i].name || LEVELS[i].name;
-    LEVELS[i].curves = (data[i].curves || []).map(normalizeCurve);
+    const rawCurves = data[i].curves || [];
+    // Determine kind: explicit pathType wins; otherwise infer from the first
+    // curve that carries cp1+cp2.
+    const isCubic =
+      data[i].pathType === 'cubic' ||
+      rawCurves.some(c => c && c.cp1 && c.cp2);
+    LEVELS[i].pathType = isCubic ? 'cubic' : 'quadratic';
+    LEVELS[i].curves = rawCurves.map(c => normalizeCurve(c, isCubic ? 'cubic' : 'quadratic'));
     LEVELS[i].waypoints = dedupePoints(data[i].waypoints || extractPolylineWaypoints(LEVELS[i].curves, 12), 1);
     LEVELS[i].shooterPos = data[i].shooterPos || LEVELS[i].shooterPos;
+    delete LEVELS[i]._preCubicSnapshot;
     clearFitStats(LEVELS[i]);
   }
 }

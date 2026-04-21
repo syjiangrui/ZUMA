@@ -36,7 +36,11 @@ export function createPath(shooterX, shooterY, pathType = "spiral", pathParams =
       generated = generateOpenArcPath(shooterX, shooterY, pathParams);
       break;
     case "bezier":
+    case "quadratic":
       generated = generateBezierPath(shooterX, shooterY, pathParams);
+      break;
+    case "cubic":
+      generated = generateCubicBezierPath(shooterX, shooterY, pathParams);
       break;
     case "drawn":
       generated = generateDrawnPath(shooterX, shooterY, pathParams);
@@ -566,6 +570,86 @@ function generateBezierPath(shooterX, shooterY, params = {}) {
 
   // Off-screen entry segment: horizontal line from right edge.
   // Skip it entirely if the author already placed the start off-screen.
+  if (allPoints.length > 0) {
+    const first = allPoints[0];
+    if (isOffscreen(first)) {
+      return { sampled: allPoints, renderPath };
+    }
+    const entryStart = { x: GAME_WIDTH + 100, y: first.y };
+    const en = 40;
+    const entryPts = [];
+    for (let s = 0; s <= en; s++) {
+      const t = s / en;
+      entryPts.push({
+        x: entryStart.x + (first.x - entryStart.x) * t,
+        y: first.y,
+      });
+    }
+    return { sampled: [...entryPts, ...allPoints], renderPath };
+  }
+
+  return { sampled: allPoints, renderPath };
+}
+
+// Cubic Bezier path — cubic Bezier curves defined by a 4-point-per-curve array.
+// pathParams.points format: [p1, cp1, cp2, p2, p1, cp1, cp2, p2, ...] — every
+// curve always stores 4 points (no dedup across segments). Neighbouring curves
+// typically share the anchor (prev.p2 == next.p1) for continuity, but the
+// sampler accepts any layout. Mirrors generateBezierPath's behavior: dense
+// sampling + 1px dedup + off-screen horizontal entry segment.
+function generateCubicBezierPath(shooterX, shooterY, params = {}) {
+  const points = params.points ?? [];
+  if (points.length < 4) return [];
+
+  const SAMPLES_PER_CURVE = 50;
+  const allPoints = [];
+  const firstPoint = points[0];
+  const renderPath = new Path2D();
+  let renderStarted = false;
+  let lastRenderPoint = null;
+
+  if (!isOffscreen(firstPoint)) {
+    renderPath.moveTo(GAME_WIDTH + 100, firstPoint.y);
+    renderPath.lineTo(firstPoint.x, firstPoint.y);
+    renderStarted = true;
+    lastRenderPoint = firstPoint;
+  }
+
+  for (let idx = 0; idx + 3 < points.length; idx += 4) {
+    const p1 = points[idx];
+    const cp1 = points[idx + 1];
+    const cp2 = points[idx + 2];
+    const p2 = points[idx + 3];
+
+    if (!renderStarted) {
+      renderPath.moveTo(p1.x, p1.y);
+      renderStarted = true;
+    } else if (!lastRenderPoint || Math.hypot(p1.x - lastRenderPoint.x, p1.y - lastRenderPoint.y) > 0.5) {
+      renderPath.lineTo(p1.x, p1.y);
+    }
+    renderPath.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, p2.x, p2.y);
+    lastRenderPoint = p2;
+
+    for (let s = 0; s <= SAMPLES_PER_CURVE; s++) {
+      const t = s / SAMPLES_PER_CURVE;
+      const inv = 1 - t;
+      const inv2 = inv * inv;
+      const t2 = t * t;
+      const pt = {
+        x: inv2 * inv * p1.x + 3 * inv2 * t * cp1.x + 3 * inv * t2 * cp2.x + t2 * t * p2.x,
+        y: inv2 * inv * p1.y + 3 * inv2 * t * cp1.y + 3 * inv * t2 * cp2.y + t2 * t * p2.y,
+      };
+      // Skip duplicates: if this point is within 1px of the previous one, drop it
+      if (allPoints.length > 0) {
+        const prev = allPoints[allPoints.length - 1];
+        if (Math.hypot(pt.x - prev.x, pt.y - prev.y) < 1) continue;
+      }
+      allPoints.push(pt);
+    }
+  }
+
+  // Off-screen entry segment: horizontal line from right edge. Skip if the
+  // author already placed the start off-screen.
   if (allPoints.length > 0) {
     const first = allPoints[0];
     if (isOffscreen(first)) {
