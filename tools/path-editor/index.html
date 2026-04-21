@@ -152,14 +152,14 @@ body{background:#0e1218;color:#ddd;font-family:-apple-system,sans-serif;display:
 </div>
 
 <script type="module">
-import { GAME_WIDTH, GAME_HEIGHT, TAU, BALL_SPACING } from './config.js';
+import { GAME_WIDTH, GAME_HEIGHT, TAU, BALL_SPACING } from '/src/config.js';
 import {
   fitQuadraticChain,
   resampleByArcLength,
   sampleQuadraticBezier,
   sampleCubicBezier,
   simplifyPolylineRdp,
-} from './path-fit.js';
+} from '/src/path-fit.js';
 
 // ─── Color palette for curve segments ───────────────────────────────
 const CURVE_COLORS = [
@@ -2813,7 +2813,7 @@ window.addEventListener('resize', resizeCanvas);
 
 // Init: try to load from level-paths.json automatically
 async function init() {
-  const url = './level-paths.json?t=' + Date.now();
+  const url = '/level-paths.json?t=' + Date.now();
   try {
     const resp = await fetch(url);
     if (resp.ok) {
