@@ -57,7 +57,7 @@ The game logic and rendering is organized as ES modules within a `ZumaGame` orch
 
 4. **Path & Geometry** (`createPath()`, `getPointAtDistance()`, `getClosestPathDistance()`, `catmullRom()`)
    - Path system is a pluggable dispatcher with 7 generators (spiral, serpentine, rectangular, zigzag, openArc, quadratic Bezier, cubic Bezier)
-   - Bezier levels are authored in `path-editor.html` and persisted to `level-paths.json`
+   - Bezier levels are authored in `tools/path-editor/index.html` and persisted to `public/level-paths.json`
    - Uses arc-length parameterization (not parametric `t`)
    - Pre-sampled into `pathPoints[]` with cumulative `len` for O(log n) distance lookups
    - `cachedTrackPath` (Path2D) is built by the generators themselves so the renderer strokes the original curve, not the resampled polyline
@@ -270,7 +270,7 @@ When working on Phase 3 tasks:
 **Phase 4** (completed) is the multi-level game loop:
 - 8 levels with level selection UI (Mayan-themed stone buttons)
 - Pluggable path system with 7 generators: spiral, serpentine, rectangular, zigzag, openArc, quadratic Bezier, cubic Bezier
-- Quadratic/cubic Bezier levels are authored in `path-editor.html` (Waypoint fit / 笔刷 freehand / ✒ pen tool) and persisted to `level-paths.json`
+- Quadratic/cubic Bezier levels are authored in `tools/path-editor/index.html` (Waypoint fit / 笔刷 freehand / ✒ pen tool) and persisted to `public/level-paths.json`
 - Per-level difficulty curve (ball count, speed, color count)
 - localStorage save/load for progress
 - Fade transitions between levels
@@ -292,7 +292,7 @@ The modularization described below has been completed. The codebase is now split
 2. **Scoring system** (`match.js`) — Clear boundaries; action contexts + match detection ✅
 3. **Chain/Split system** (`chain.js`) — Highest coupling, but cleanly extracted ✅
 4. **Projectile system** (`projectile.js`) — Flight, collision, insertion ✅
-5. **Rendering** (`render.js`) — All draw*, texture generation ✅
+5. **Rendering** (`src/render/`) — split into draw-utils / ball-textures / scene / hud / screens; `index.js` exports the public `render()` + `createTextures()` ✅
 6. **Audio** (`sfx.js`) — Self-contained SfxEngine class ✅
 7. **Config** (`config.js`) — Constants and palettes ✅
 
@@ -309,20 +309,34 @@ The modularization described below has been completed. The codebase is now split
 
 ```
 .
-├── index.html              # Single HTML entry point (<script type="module">)
-├── style.css               # Canvas sizing, page layout, color scheme
-├── config.js               # Constants, palettes, tuning params (~104 lines)
-├── sfx.js                  # SfxEngine class — procedural audio (~181 lines)
-├── path.js                 # Path dispatcher + 7 generators (~771 lines)
-├── path-fit.js             # Quadratic & cubic Bezier sampling + adaptive fit (~420 lines)
-├── path-editor.html        # Bezier path editor w/ Waypoint / Brush / Pen tools (~2838 lines)
-├── chain.js                # Chain + split/merge + ball transitions (~385 lines)
-├── match.js                # Match detection, scoring, action contexts (~330 lines)
-├── projectile.js           # Projectile flight, collision, insertion (~141 lines)
-├── render.js               # All draw*, texture generation, HUD (~1729 lines)
-├── levels.js               # 8-level configuration array + Bezier loader (~218 lines)
-├── save.js                 # localStorage save/load for level progress (~75 lines)
-├── main.js                 # ZumaGame orchestrator, input, particles, loop (~703 lines)
+├── index.html              # Main game entry (Vite root)
+├── package.json            # npm deps (Vite)
+├── vite.config.js          # Build config — multi-entry (main + path-editor)
+├── README.md               # Dev/build instructions
+├── public/
+│   └── level-paths.json    # Bezier level data (served at site root)
+├── src/
+│   ├── main.js             # ZumaGame orchestrator, input, particles, loop
+│   ├── config.js           # Constants, palettes, tuning params
+│   ├── sfx.js              # SfxEngine class — procedural audio
+│   ├── path.js             # Path dispatcher + 7 generators
+│   ├── path-fit.js         # Quadratic & cubic Bezier sampling + adaptive fit
+│   ├── chain.js            # Chain + split/merge + ball transitions
+│   ├── match.js            # Match detection, scoring, action contexts
+│   ├── projectile.js       # Projectile flight, collision, insertion
+│   ├── levels.js           # 8-level configuration array + Bezier loader
+│   ├── save.js             # localStorage save/load for level progress
+│   ├── style.css           # Canvas sizing, page layout, color scheme
+│   └── render/             # Render layer (split from former 2198-line render.js)
+│       ├── index.js            # Public API: render(), createTextures()
+│       ├── draw-utils.js       # Rounded rects, stone panel, seamless texture
+│       ├── ball-textures.js    # Frog body, glyphs, ball patterns, drawBall, caches
+│       ├── scene.js            # Background, track, goal, chain, projectile, shooter, particles
+│       ├── hud.js              # HUD overlay, next preview, sound/restart buttons, feedback
+│       └── screens.js          # Round-end card, all-clear, level select
+├── tools/
+│   └── path-editor/
+│       └── index.html      # Bezier path editor (Waypoint / Brush / Pen tools)
 ├── CLAUDE.md               # This file
 ├── TECHNICAL_ARCHITECTURE.md  # Implementation deep-dive (reference docs)
 └── ZUMA_PLAN.md            # Phase 1/2/3 planning and history
@@ -331,17 +345,17 @@ The modularization described below has been completed. The codebase is now split
 ### Module Dependency Graph (acyclic)
 
 ```
-config.js   sfx.js (no deps)
+src/config.js   src/sfx.js (no deps)
    ↑
-   ├── path.js
-   ├── chain.js
-   ├── match.js
-   ├── projectile.js
-   ├── render.js
-   ├── levels.js
-   └── main.js ← imports from ALL modules (including levels.js, save.js)
+   ├── src/path.js
+   ├── src/chain.js
+   ├── src/match.js
+   ├── src/projectile.js
+   ├── src/render/ (index.js → ball-textures/scene/hud/screens → draw-utils)
+   ├── src/levels.js
+   └── src/main.js ← imports from ALL modules (including levels.js, save.js)
 
-save.js has no deps (standalone localStorage utility)
+src/save.js has no deps (standalone localStorage utility)
 ```
 
 No module imports from a sibling module (except config.js). All cross-subsystem calls flow through `game.*` method wrappers on ZumaGame, preventing circular dependencies.

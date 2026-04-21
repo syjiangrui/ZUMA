@@ -9,7 +9,8 @@
 
 当前实现特点：
 
-- 使用 ES 模块拆分为 10 个文件（`config.js`, `sfx.js`, `path.js`, `chain.js`, `match.js`, `projectile.js`, `render.js`, `levels.js`, `save.js`, `main.js`），`main.js` 中的 `ZumaGame` 类作为编排器
+- 使用 ES 模块组织于 `src/` 目录，`main.js` 中的 `ZumaGame` 类作为编排器。渲染层进一步拆分为 `src/render/` 子模块（`draw-utils`, `ball-textures`, `scene`, `hud`, `screens`, `index`）
+- 构建工具：Vite（多入口：主游戏 + `tools/path-editor/`）
 - 使用 `Canvas 2D` 绘制轨道、球体、HUD 和场景
 - 使用固定逻辑分辨率 `430 x 932`
 - 支持桌面和手机触控输入
@@ -17,16 +18,16 @@
 
 这份文档对应当前项目中的以下文件：
 
-- [main.js](main.js) — ZumaGame 编排器（~703 行）
-- [config.js](config.js) — 常量与调色板
-- [sfx.js](sfx.js) — 音频合成
-- [path.js](path.js) — 路径几何（多种路径生成器 + 调度器）
-- [chain.js](chain.js) — 球链 + 断链/并链
-- [match.js](match.js) — 匹配检测与计分
-- [projectile.js](projectile.js) — 弹射体系统
-- [render.js](render.js) — 渲染与纹理生成
-- [levels.js](levels.js) — 8 关卡配置（路径类型、颜色数、链速等）
-- [save.js](save.js) — localStorage 持久化（关卡进度）
+- [src/main.js](src/main.js) — ZumaGame 编排器
+- [src/config.js](src/config.js) — 常量与调色板
+- [src/sfx.js](src/sfx.js) — 音频合成
+- [src/path.js](src/path.js) — 路径几何（多种路径生成器 + 调度器）
+- [src/chain.js](src/chain.js) — 球链 + 断链/并链
+- [src/match.js](src/match.js) — 匹配检测与计分
+- [src/projectile.js](src/projectile.js) — 弹射体系统
+- [src/render/](src/render/) — 渲染与纹理生成（6 文件：index / draw-utils / ball-textures / scene / hud / screens）
+- [src/levels.js](src/levels.js) — 8 关卡配置（路径类型、颜色数、链速等）
+- [src/save.js](src/save.js) — localStorage 持久化（关卡进度）
 - [ZUMA_PLAN.md](ZUMA_PLAN.md)
 
 ## 2. 当前代码组织方式
