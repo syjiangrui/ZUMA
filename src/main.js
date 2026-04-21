@@ -103,6 +103,13 @@ class ZumaGame {
     this.lastTime = 0;
 
     this.createTextures();
+    // Background images are authored per-level (see path editor's "保存为本关
+    // 背景"). We preload them eagerly so the first frame of a level can use the
+    // image instead of flashing the procedural gradient fallback. Individual
+    // loads are async — as each image resolves, it nulls the active
+    // staticSceneCache so the next frame rebakes with the real artwork.
+    this.backgroundImages = {};
+    this.preloadBackgroundImages();
     this.goToLevelSelect();
     this.bindEvents();
     this.resize();
@@ -162,6 +169,36 @@ class ZumaGame {
 
   createTextures() {
     createTexturesFn(this);
+  }
+
+  // Preload every level's background image into `this.backgroundImages`,
+  // keyed by the image's `src` string. Duplicates are collapsed so the
+  // same URL is fetched once even if multiple levels share it. Failed
+  // loads are dropped silently — rendering falls back to the procedural
+  // gradient path.
+  preloadBackgroundImages() {
+    const seen = new Set();
+    for (const level of LEVELS) {
+      const src = level && level.background && level.background.src;
+      if (!src || seen.has(src)) continue;
+      seen.add(src);
+      const img = new Image();
+      img.onload = () => {
+        this.backgroundImages[src] = img;
+        // Only invalidate if the currently active level uses this image —
+        // avoids needlessly rebaking the cache for off-screen levels.
+        const activeSrc = this.levelConfig
+          && this.levelConfig.background
+          && this.levelConfig.background.src;
+        if (activeSrc === src) {
+          this.staticSceneCache = null;
+        }
+      };
+      img.onerror = () => {
+        // Leave `this.backgroundImages[src]` undefined so render falls back.
+      };
+      img.src = src;
+    }
   }
 
   render() {

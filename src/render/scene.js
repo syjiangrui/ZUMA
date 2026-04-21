@@ -306,7 +306,37 @@ export function createStaticSceneCache(game) {
   cache.width = GAME_WIDTH;
   cache.height = GAME_HEIGHT;
   const cCtx = cache.getContext("2d");
+
+  // Layer 0: procedural gradient + tile decor. Kept as a fallback so the
+  // scene still reads as "a place" when an authored background is missing,
+  // fails to load, or doesn't fully cover the play area.
   drawBackground(game, cCtx);
+
+  // Layer 1 (optional): authored background artwork from the path editor.
+  // When present, it's painted over the procedural gradient using the
+  // {x, y, scale} authored in the editor (which previews the runtime result
+  // pixel-for-pixel). We still clip to the play area so the authored art
+  // never spills onto HUD or bottom-button strips — matches the expectation
+  // the editor sets with its "HUD 区域 / 按钮区域" overlays.
+  const bgCfg = game.levelConfig && game.levelConfig.background;
+  const bgImg = bgCfg && game.backgroundImages && game.backgroundImages[bgCfg.src];
+  if (bgCfg && bgImg) {
+    cCtx.save();
+    cCtx.beginPath();
+    cCtx.rect(
+      0,
+      HUD_HEIGHT,
+      GAME_WIDTH,
+      GAME_HEIGHT - HUD_HEIGHT - BOTTOM_BUTTON_HEIGHT,
+    );
+    cCtx.clip();
+    cCtx.translate(bgCfg.x || 0, bgCfg.y || 0);
+    const scale = bgCfg.scale || 1;
+    cCtx.scale(scale, scale);
+    cCtx.drawImage(bgImg, 0, 0);
+    cCtx.restore();
+  }
+
   // Clip the track + goal to the play area so any portion of an author-drawn
   // path that strays into the HUD or bottom-button strips doesn't render on
   // top of those UI zones. Background fills the whole canvas because the HUD
@@ -320,7 +350,14 @@ export function createStaticSceneCache(game) {
     GAME_HEIGHT - HUD_HEIGHT - BOTTOM_BUTTON_HEIGHT,
   );
   cCtx.clip();
-  drawTrack(game, cCtx);
+  // When an authored background supplies the track artwork, skip the
+  // procedural drawTrack() — otherwise we'd paint a stone track on top of
+  // the dirt path in the background image. drawGoal still runs so the
+  // glowing end marker appears at the logical path terminus regardless of
+  // what the art does.
+  if (!(bgCfg && bgImg)) {
+    drawTrack(game, cCtx);
+  }
   drawGoal(game, cCtx);
   cCtx.restore();
   game.staticSceneCache = cache;

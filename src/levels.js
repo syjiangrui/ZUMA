@@ -206,6 +206,17 @@ export async function initLevels() {
         LEVELS[i].pathParams = { points };
         LEVELS[i].shooterPos = data[i].shooterPos || LEVELS[i].shooterPos;
       }
+      // Per-level background artwork (painted by path editor). Optional —
+      // legacy levels without this field fall back to the procedural
+      // gradient + drawTrack rendering in src/render/scene.js.
+      if (data[i] && data[i].background && data[i].background.src) {
+        LEVELS[i].background = {
+          src: String(data[i].background.src),
+          x: Number(data[i].background.x) || 0,
+          y: Number(data[i].background.y) || 0,
+          scale: Number(data[i].background.scale) || 1,
+        };
+      }
     }
   } catch (e) {
     // File not found or parse error — use defaults

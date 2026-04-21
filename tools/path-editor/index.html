@@ -134,8 +134,15 @@ body{background:#0e1218;color:#ddd;font-family:-apple-system,sans-serif;display:
       <span class="ref-val" id="refScaleVal">100%</span>
     </div>
     <div class="ref-row">
-      <button class="btn" onclick="resetRefPos()" id="refResetBtn" disabled>重置位置</button>
+      <button class="btn" onclick="resetRefPos()" id="refResetBtn" disabled>cover 核心区</button>
       <span style="color:#3a4a5a;font-size:10px;flex:1;text-align:right">Alt+拖拽移动图片</span>
+    </div>
+    <div class="ref-row">
+      <button class="btn primary" onclick="saveRefAsLevelBackground()" id="refSaveBtn" disabled style="flex:1">保存为本关背景</button>
+      <button class="btn" onclick="clearLevelBackground()" id="refClearBgBtn" disabled style="flex:1">清除本关背景</button>
+    </div>
+    <div class="ref-row">
+      <span id="refBgStatus" style="color:#3a4a5a;font-size:10px;flex:1">未设置背景</span>
     </div>
   </div>
 
@@ -233,11 +240,34 @@ let shiftConstrain = false;      // Shift held → snap handle angle to 45°
 const PEN_DRAG_THRESHOLD = 3;    // px in game space before drag counts as handle authoring
 
 // ─── Reference image state ─────────────────────────────────────────
+// The "core play area" is the 430×812 rectangle below the HUD and above the
+// bottom-button strip. Background artwork is authored to cover this area —
+// anything that spills into HUD (y<120) or bottom buttons (y>862) will be
+// hidden behind UI at runtime, so we fit reference images to this band.
+const PLAY_AREA_X = 0;
+const PLAY_AREA_Y = 120;
+const PLAY_AREA_W = GAME_WIDTH;
+const PLAY_AREA_H = GAME_HEIGHT - 120 - 70; // 812
+
 let refImage = null;
+let refImageSrc = null;   // relative path (e.g. "backgrounds/sample.jpg") when loaded from public/
+let refUploadedName = null; // original filename from the last local upload, used to seed the save-background prompt
 let refImgX = 0;
 let refImgY = 0;
 let refImgScale = 1;
 let refOpacity = 0.4;
+
+// Compute the {x, y, scale} that "cover"-fills the core play area with an image.
+// Matches runtime behavior in src/render/scene.js.
+function computeCoverForPlayArea(img) {
+  const scale = Math.max(PLAY_AREA_W / img.naturalWidth, PLAY_AREA_H / img.naturalHeight);
+  const drawnW = img.naturalWidth * scale;
+  const drawnH = img.naturalHeight * scale;
+  // Center within the play area (horizontally and vertically).
+  const x = PLAY_AREA_X + (PLAY_AREA_W - drawnW) / 2;
+  const y = PLAY_AREA_Y + (PLAY_AREA_H - drawnH) / 2;
+  return { x, y, scale };
+}
 
 function roundPoint(pt) {
   return { x: Math.round(Number(pt?.x) || 0), y: Math.round(Number(pt?.y) || 0) };
@@ -2588,9 +2618,28 @@ function switchLevel(index, activeBtn = null) {
   const sh = LEVELS[currentLevel].shooterPos;
   document.getElementById('shX').value = sh.x;
   document.getElementById('shY').value = sh.y;
+  // Sync reference image to the newly active level's background (if any).
+  syncRefImageToLevel();
   buildCurveList();
   updateWaypointMeta();
   render();
+}
+
+// Drop the current reference image and reload it from the active level's
+// background field. Called after switchLevel and after a JSON load.
+function syncRefImageToLevel() {
+  const level = LEVELS[currentLevel];
+  const bg = level && level.background;
+  if (bg && bg.src) {
+    loadRefImageFromSrc(bg.src, { x: bg.x, y: bg.y, scale: bg.scale });
+  } else {
+    // Keep the previously uploaded image so authors can reuse one ref across
+    // levels if they want. Only clear when explicitly removed.
+    // If you prefer auto-clear, uncomment:
+    // refImage = null; refImageSrc = null;
+    updateRefButtonsState();
+    render();
+  }
 }
 
 LEVELS.forEach((lv, i) => {
@@ -2610,27 +2659,39 @@ const LEVEL_FILE = 'level-paths.json';
 let fileHandle = null; // File System Access API handle
 
 function levelsToJson() {
-  return JSON.stringify(LEVELS.map((lv, i) => ({
-    name: lv.name,
-    pathType: lv.pathType || 'quadratic',
-    curves: lv.curves.map(c => (
-      isCubicCurve(c)
-        ? {
-            p1: { x: Math.round(c.p1.x), y: Math.round(c.p1.y) },
-            cp1: { x: Math.round(c.cp1.x), y: Math.round(c.cp1.y) },
-            cp2: { x: Math.round(c.cp2.x), y: Math.round(c.cp2.y) },
-            p2: { x: Math.round(c.p2.x), y: Math.round(c.p2.y) },
-            smooth: c.smooth !== false,
-          }
-        : {
-            p1: { x: Math.round(c.p1.x), y: Math.round(c.p1.y) },
-            cp: { x: Math.round(c.cp.x), y: Math.round(c.cp.y) },
-            p2: { x: Math.round(c.p2.x), y: Math.round(c.p2.y) },
-          }
-    )),
-    waypoints: lv.waypoints.map(pt => ({ x: Math.round(pt.x), y: Math.round(pt.y) })),
-    shooterPos: lv.shooterPos,
-  })), null, 2);
+  return JSON.stringify(LEVELS.map((lv, i) => {
+    const out = {
+      name: lv.name,
+      pathType: lv.pathType || 'quadratic',
+      curves: lv.curves.map(c => (
+        isCubicCurve(c)
+          ? {
+              p1: { x: Math.round(c.p1.x), y: Math.round(c.p1.y) },
+              cp1: { x: Math.round(c.cp1.x), y: Math.round(c.cp1.y) },
+              cp2: { x: Math.round(c.cp2.x), y: Math.round(c.cp2.y) },
+              p2: { x: Math.round(c.p2.x), y: Math.round(c.p2.y) },
+              smooth: c.smooth !== false,
+            }
+          : {
+              p1: { x: Math.round(c.p1.x), y: Math.round(c.p1.y) },
+              cp: { x: Math.round(c.cp.x), y: Math.round(c.cp.y) },
+              p2: { x: Math.round(c.p2.x), y: Math.round(c.p2.y) },
+            }
+      )),
+      waypoints: lv.waypoints.map(pt => ({ x: Math.round(pt.x), y: Math.round(pt.y) })),
+      shooterPos: lv.shooterPos,
+    };
+    // Only persist background when authored — keeps JSON tidy for legacy levels.
+    if (lv.background && lv.background.src) {
+      out.background = {
+        src: lv.background.src,
+        x: Math.round((lv.background.x || 0) * 100) / 100,
+        y: Math.round((lv.background.y || 0) * 100) / 100,
+        scale: Math.round((lv.background.scale || 1) * 10000) / 10000,
+      };
+    }
+    return out;
+  }), null, 2);
 }
 
 function loadLevelsFromData(data) {
@@ -2646,6 +2707,17 @@ function loadLevelsFromData(data) {
     LEVELS[i].curves = rawCurves.map(c => normalizeCurve(c, isCubic ? 'cubic' : 'quadratic'));
     LEVELS[i].waypoints = dedupePoints(data[i].waypoints || extractPolylineWaypoints(LEVELS[i].curves, 12), 1);
     LEVELS[i].shooterPos = data[i].shooterPos || LEVELS[i].shooterPos;
+    // Background is optional; legacy JSON won't have it.
+    if (data[i].background && data[i].background.src) {
+      LEVELS[i].background = {
+        src: String(data[i].background.src),
+        x: Number(data[i].background.x) || 0,
+        y: Number(data[i].background.y) || 0,
+        scale: Number(data[i].background.scale) || 1,
+      };
+    } else {
+      delete LEVELS[i].background;
+    }
     delete LEVELS[i]._preCubicSnapshot;
     clearFitStats(LEVELS[i]);
   }
@@ -2698,6 +2770,7 @@ window.loadFromFile = async function() {
       document.getElementById('shY').value = sh.y;
       buildCurveList();
       updateWaypointMeta();
+      syncRefImageToLevel();
       render();
       return;
     } catch (e) {
@@ -2718,6 +2791,7 @@ window.loadFromFile = async function() {
     document.getElementById('shY').value = sh.y;
     buildCurveList();
     updateWaypointMeta();
+    syncRefImageToLevel();
     render();
   };
   input.click();
@@ -2743,17 +2817,17 @@ window.uploadRefImage = function() {
     const img = new Image();
     img.onload = () => {
       refImage = img;
-      // Default: fit image into game area, centered
-      const scaleX = GAME_WIDTH / img.naturalWidth;
-      const scaleY = GAME_HEIGHT / img.naturalHeight;
-      refImgScale = Math.min(scaleX, scaleY);
-      refImgX = (GAME_WIDTH - img.naturalWidth * refImgScale) / 2;
-      refImgY = (GAME_HEIGHT - img.naturalHeight * refImgScale) / 2;
-      // Update UI
-      document.getElementById('refScale').value = Math.round(refImgScale * 100);
-      document.getElementById('refScaleVal').textContent = Math.round(refImgScale * 100) + '%';
-      document.getElementById('refRemoveBtn').disabled = false;
-      document.getElementById('refResetBtn').disabled = false;
+      // Local file upload isn't addressable from the game runtime. We still
+      // let the user visualize and standardize positioning; when they click
+      // "保存为本关背景" we'll warn that the file needs to live under
+      // public/backgrounds/ to be loaded by the game.
+      refImageSrc = null;
+      // Remember the uploaded filename so the save-background prompt can
+      // suggest a path that preserves the real extension (jpg vs png vs
+      // webp). Strip any directory components — we only want the basename.
+      refUploadedName = (file.name || '').replace(/^.*[\\/]/, '') || null;
+      applyCoverToPlayArea();
+      updateRefButtonsState();
       render();
     };
     img.src = url;
@@ -2761,13 +2835,83 @@ window.uploadRefImage = function() {
   input.click();
 };
 
+// Load a reference image from a URL relative to the public/ root (e.g.
+// "backgrounds/sample.jpg"). Used when switching levels to restore the
+// saved level background.
+function loadRefImageFromSrc(src, xyScale = null) {
+  if (!src) return;
+  const img = new Image();
+  img.onload = () => {
+    refImage = img;
+    refImageSrc = src;
+    if (xyScale && Number.isFinite(xyScale.x) && Number.isFinite(xyScale.y) && Number.isFinite(xyScale.scale)) {
+      refImgX = xyScale.x;
+      refImgY = xyScale.y;
+      refImgScale = xyScale.scale;
+    } else {
+      applyCoverToPlayArea();
+    }
+    syncRefScaleSlider();
+    updateRefButtonsState();
+    render();
+  };
+  img.onerror = () => {
+    // Image missing — silently fall through; author can re-upload.
+    refImage = null;
+    refImageSrc = null;
+    updateRefButtonsState();
+    render();
+  };
+  // Resolve relative to site root so vite dev server serves from public/.
+  img.src = '/' + src.replace(/^\//, '');
+}
+
+function applyCoverToPlayArea() {
+  if (!refImage) return;
+  const c = computeCoverForPlayArea(refImage);
+  refImgX = c.x;
+  refImgY = c.y;
+  refImgScale = c.scale;
+  syncRefScaleSlider();
+}
+
+function syncRefScaleSlider() {
+  const pct = Math.round(refImgScale * 100);
+  const slider = document.getElementById('refScale');
+  const label = document.getElementById('refScaleVal');
+  // Clamp to slider min/max so the slider still reflects authored scale when
+  // cover scale is outside the 10–300% preset range (rare with 9:16 art).
+  const clamped = Math.max(Number(slider.min) || 10, Math.min(Number(slider.max) || 300, pct));
+  slider.value = clamped;
+  label.textContent = pct + '%';
+}
+
+function updateRefButtonsState() {
+  const hasImg = !!refImage;
+  const level = LEVELS[currentLevel];
+  const hasBg = !!(level && level.background && level.background.src);
+  document.getElementById('refRemoveBtn').disabled = !hasImg;
+  document.getElementById('refResetBtn').disabled = !hasImg;
+  document.getElementById('refSaveBtn').disabled = !hasImg;
+  document.getElementById('refClearBgBtn').disabled = !hasBg;
+  const status = document.getElementById('refBgStatus');
+  if (hasBg) {
+    status.textContent = `已设置：${level.background.src}`;
+    status.style.color = '#6a8';
+  } else {
+    status.textContent = '未设置背景';
+    status.style.color = '#3a4a5a';
+  }
+}
+
 window.removeRefImage = function() {
   refImage = null;
+  refImageSrc = null;
+  refUploadedName = null;
   refImgX = 0;
   refImgY = 0;
   refImgScale = 1;
-  document.getElementById('refRemoveBtn').disabled = true;
-  document.getElementById('refResetBtn').disabled = true;
+  updateRefButtonsState();
   render();
 };
 
@@ -2783,14 +2927,47 @@ window.updateRefSettings = function() {
 
 window.resetRefPos = function() {
   if (!refImage) return;
-  const scaleX = GAME_WIDTH / refImage.naturalWidth;
-  const scaleY = GAME_HEIGHT / refImage.naturalHeight;
-  refImgScale = Math.min(scaleX, scaleY);
-  refImgX = (GAME_WIDTH - refImage.naturalWidth * refImgScale) / 2;
-  refImgY = (GAME_HEIGHT - refImage.naturalHeight * refImgScale) / 2;
-  document.getElementById('refScale').value = Math.round(refImgScale * 100);
-  document.getElementById('refScaleVal').textContent = Math.round(refImgScale * 100) + '%';
+  applyCoverToPlayArea();
   render();
+};
+
+// Save the currently loaded reference image + its x/y/scale as the
+// background for the active level. Writes into LEVELS[i].background; the
+// caller still needs to "保存到文件" to persist into level-paths.json.
+window.saveRefAsLevelBackground = function() {
+  if (!refImage) { alert('请先上传参考图'); return; }
+  if (!refImageSrc) {
+    // Default suggestion: level-N.<ext>, where the extension is the real
+    // extension of the file the author just uploaded (falls back to .png
+    // only when we can't tell — e.g. no name, or pasted data URL).
+    const extMatch = refUploadedName && refUploadedName.match(/\.[A-Za-z0-9]+$/);
+    const ext = extMatch ? extMatch[0].toLowerCase() : '.png';
+    const suggested = 'backgrounds/level-' + (currentLevel + 1) + ext;
+    const entered = prompt(
+      '本地上传的图片无法被游戏加载。\n\n'
+      + '请把图片放到 public/backgrounds/ 目录下，并在此填写相对路径：\n'
+      + '（示例：' + suggested + '）',
+      suggested,
+    );
+    if (!entered) return;
+    refImageSrc = entered.trim().replace(/^\//, '');
+  }
+  LEVELS[currentLevel].background = {
+    src: refImageSrc,
+    x: Math.round(refImgX * 100) / 100,
+    y: Math.round(refImgY * 100) / 100,
+    scale: Math.round(refImgScale * 10000) / 10000,
+  };
+  updateRefButtonsState();
+  alert('已写入本关背景。记得点"保存到文件"持久化到 level-paths.json');
+};
+
+window.clearLevelBackground = function() {
+  const level = LEVELS[currentLevel];
+  if (!level || !level.background) return;
+  delete level.background;
+  updateRefButtonsState();
+  alert('已清除本关背景（记得保存到文件）');
 };
 
 // ─── Canvas setup ───────────────────────────────────────────────────
@@ -2830,6 +3007,7 @@ async function init() {
   document.getElementById('waypointErrorVal').textContent = `${document.getElementById('waypointError').value}px`;
   buildCurveList();
   updateWaypointMeta();
+  syncRefImageToLevel();
   resizeCanvas();
 }
 init();
