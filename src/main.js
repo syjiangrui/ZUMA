@@ -39,7 +39,7 @@ import {
 import {
   render as renderFn,
   createTextures as createTexturesFn,
-} from './render.js';
+} from './render/index.js';
 import { LEVELS, getLevelById, initLevels } from './levels.js';
 import { loadProgress, saveProgress, recordLevelClear, updateHighScore, resetProgress } from './save.js';
 
