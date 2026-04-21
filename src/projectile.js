@@ -78,10 +78,9 @@ export function findChainCollision(game) {
       continue;
     }
 
-    const point = game.getPointAtDistance(ball.s);
     const distance = Math.hypot(
-      game.projectile.x - point.x,
-      game.projectile.y - point.y,
+      game.projectile.x - ball.screenX,
+      game.projectile.y - ball.screenY,
     );
 
     if (distance <= BALL_DIAMETER - 4 && (!best || distance < best.distance)) {

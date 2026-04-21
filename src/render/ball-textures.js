@@ -510,7 +510,7 @@ export function createBallPatternCanvas(palette, glyphVariant) {
 // bloom, edge strokes) are pre-baked in createBallRenderCache(). Only the
 // rolling band texture is drawn live each frame (it depends on rotation).
 // This reduces per-ball gradient creation from 5 to 0.
-export function drawBall(game, ctx, x, y, radius, paletteIndex, rotation, impact = 0) {
+export function drawBall(game, ctx, x, y, radius, paletteIndex, rotation, impact = 0, pathAngle = 0) {
   const pattern = game.ballPatterns[paletteIndex];
   const pad = game.ballCachePad;
   const scale = 1 + impact * 0.08;
@@ -553,7 +553,7 @@ export function drawBall(game, ctx, x, y, radius, paletteIndex, rotation, impact
 
   // Rolling belt (must be drawn live — rotation changes every frame).
   // The band texture handles its own elliptical clip internally.
-  drawRollingBandTexture(game, ctx, pattern, radius, rotation);
+  drawRollingBandTexture(game, ctx, pattern, radius, rotation, pathAngle);
 
   // Overlay shading (cached for standard radius)
   if (radius === BALL_RADIUS && game.ballOverCache) {
@@ -564,7 +564,7 @@ export function drawBall(game, ctx, x, y, radius, paletteIndex, rotation, impact
 }
 
 // Rolling belt texture + cached band shading overlay.
-function drawRollingBandTexture(game, ctx, pattern, radius, rotation) {
+function drawRollingBandTexture(game, ctx, pattern, radius, rotation, pathAngle) {
   const sourceWidth = pattern.width;
   const sourceHeight = pattern.height;
   const sourceY = sourceHeight * 0.18;
@@ -574,6 +574,12 @@ function drawRollingBandTexture(game, ctx, pattern, radius, rotation) {
   const offset = (((rotation / TAU) % 1 + 1) % 1) * bandWidth;
 
   ctx.save();
+  // Rotate the band texture to align with the path tangent so the
+  // rolling direction follows the track instead of always scrolling
+  // horizontally regardless of curve direction.
+  if (pathAngle !== 0) {
+    ctx.rotate(pathAngle);
+  }
   ctx.beginPath();
   ctx.ellipse(0, 0, radius * 0.98, radius * 0.8, 0, 0, TAU);
   ctx.clip();

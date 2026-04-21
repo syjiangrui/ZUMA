@@ -46,6 +46,11 @@ export function createChainBall(game, paletteIndex) {
     // impact is purely visual: a short pulse used on collisions, merges and
     // seam closures so state transitions are easier to read.
     impact: 0,
+    // Screen position and path tangent cached during syncChainPositions so
+    // the renderer does not need to call getPointAtDistance a second time.
+    screenX: 0,
+    screenY: 0,
+    pathAngle: 0,
     // Keep a fallback link from later delayed checks back to the originating
     // shot action so combo scoring does not silently disappear if an explicit
     // action id is missing further down the chain reaction.
@@ -143,6 +148,14 @@ export function syncChainPositions(game) {
     // Rotation is tied to traveled path distance so textured balls look like
     // they are rolling along the track instead of merely sliding.
     ball.rotation = ball.s / ball.radius;
+    // Cache the screen position and path tangent angle so the renderer
+    // can use them directly without calling getPointAtDistance again.
+    if (ball.s >= 0 && ball.s <= game.totalPathLength) {
+      const pt = game.getPointAtDistance(ball.s);
+      ball.screenX = pt.x;
+      ball.screenY = pt.y;
+      ball.pathAngle = pt.angle;
+    }
   });
 }
 

@@ -182,16 +182,16 @@ export function drawChain(game, ctx) {
       continue;
     }
 
-    const point = game.getPointAtDistance(ball.s);
     drawBall(
       game,
       ctx,
-      point.x,
-      point.y,
+      ball.screenX,
+      ball.screenY,
       ball.radius,
       ball.paletteIndex,
       ball.rotation,
       ball.impact,
+      ball.pathAngle,
     );
   }
 
@@ -223,6 +223,7 @@ export function drawProjectile(game, ctx) {
     game.projectile.radius,
     game.projectile.paletteIndex,
     game.projectile.rotation,
+    0,
     0,
   );
 
@@ -271,13 +272,13 @@ export function drawShooter(game, ctx) {
   ctx.drawImage(game.frogCacheBehind, -cx, -cy);
 
   // --- 3. Live ball inside the mouth (palette/rotation change each frame) ---
-  drawBall(game, ctx, 0, -34, BALL_RADIUS, game.currentPaletteIndex, angle * 2.2);
+  drawBall(game, ctx, 0, -34, BALL_RADIUS, game.currentPaletteIndex, angle * 2.2, 0, 0);
 
   // --- 4. Cached layer: upper jaw + eyes (overlaps ball top) ---
   ctx.drawImage(game.frogCacheFront, -cx, -cy);
 
   // --- 5. Live current-ball echo in belly socket (matches mouth ball) ---
-  drawBall(game, ctx, 0, 32, BALL_RADIUS - 1, game.currentPaletteIndex, -angle * 1.5);
+  drawBall(game, ctx, 0, 32, BALL_RADIUS - 1, game.currentPaletteIndex, -angle * 1.5, 0, 0);
 
   ctx.restore();
 }

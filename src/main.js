@@ -889,7 +889,6 @@ class ZumaGame {
 
     for (let i = 0; i < count; i++) {
       const ball = this.chain[startIndex + i];
-      const pt = this.getPointAtDistance(ball.s);
 
       for (let j = 0; j < PARTICLE_COUNT_PER_BALL; j++) {
         if (this.particles.length >= PARTICLE_MAX_TOTAL) {
@@ -901,8 +900,8 @@ class ZumaGame {
           PARTICLE_SPEED_MIN +
           Math.random() * (PARTICLE_SPEED_MAX - PARTICLE_SPEED_MIN);
         this.particles.push({
-          x: pt.x,
-          y: pt.y,
+          x: ball.screenX,
+          y: ball.screenY,
           vx: Math.cos(angle) * speed,
           vy: Math.sin(angle) * speed - 40, // slight upward bias
           age: 0,

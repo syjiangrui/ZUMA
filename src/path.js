@@ -446,11 +446,15 @@ function generateZigzagPath(shooterX, shooterY, params = {}) {
 
 export function getPointAtDistance(pathPoints, totalPathLength, s) {
   if (s <= 0) {
-    return pathPoints[0];
+    const p0 = pathPoints[0];
+    const p1 = pathPoints[Math.min(1, pathPoints.length - 1)];
+    return { x: p0.x, y: p0.y, angle: Math.atan2(p1.y - p0.y, p1.x - p0.x) };
   }
 
   if (s >= totalPathLength) {
-    return pathPoints[pathPoints.length - 1];
+    const pLast = pathPoints[pathPoints.length - 1];
+    const pPrev = pathPoints[Math.max(0, pathPoints.length - 2)];
+    return { x: pLast.x, y: pLast.y, angle: Math.atan2(pLast.y - pPrev.y, pLast.x - pPrev.x) };
   }
 
   let low = 0;
@@ -472,10 +476,11 @@ export function getPointAtDistance(pathPoints, totalPathLength, s) {
 
   // Linear interpolation between neighboring sampled points is enough because
   // the original curve was already oversampled in createPath().
-  return {
-    x: prev.x + (next.x - prev.x) * t,
-    y: prev.y + (next.y - prev.y) * t,
-  };
+  const x = prev.x + (next.x - prev.x) * t;
+  const y = prev.y + (next.y - prev.y) * t;
+  const angle = Math.atan2(next.y - prev.y, next.x - prev.x);
+
+  return { x, y, angle };
 }
 
 export function getClosestPathDistance(pathPoints, x, y) {
