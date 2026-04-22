@@ -865,7 +865,9 @@ function render() {
       ctx.moveTo(pts[0].x, pts[0].y);
       for (let j = 1; j < pts.length; j++) ctx.lineTo(pts[j].x, pts[j].y);
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      ctx.strokeStyle = CURVE_COLORS[i % CURVE_COLORS.length] + '50'; ctx.lineWidth = 3; ctx.stroke();
+      ctx.strokeStyle = CURVE_COLORS[i % CURVE_COLORS.length] + 'F0';
+      ctx.lineWidth = 3;
+      ctx.stroke();
     }
   }
 
@@ -919,8 +921,8 @@ function render() {
     if (isCubicCurve(c)) {
       // Cubic: two handles, each attaching to its own anchor.
       ctx.setLineDash([4 / scale, 3 / scale]);
-      ctx.strokeStyle = col + '60';
-      ctx.lineWidth = 1 / scale;
+      ctx.strokeStyle = col + 'C0';
+      ctx.lineWidth = 1.5 / scale;
       ctx.beginPath();
       ctx.moveTo(c.p1.x, c.p1.y);
       ctx.lineTo(c.cp1.x, c.cp1.y);
@@ -936,8 +938,8 @@ function render() {
     } else {
       // Quadratic: single control point shared by both anchors.
       ctx.setLineDash([4 / scale, 3 / scale]);
-      ctx.strokeStyle = col + '60';
-      ctx.lineWidth = 1 / scale;
+      ctx.strokeStyle = col + 'C0';
+      ctx.lineWidth = 1.5 / scale;
       ctx.beginPath();
       ctx.moveTo(c.p1.x, c.p1.y);
       ctx.lineTo(c.cp.x, c.cp.y);
