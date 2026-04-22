@@ -340,6 +340,76 @@ pathParams: {
 
 **切关自动同步**：切关卡时，若新关有 `background` 字段，编辑器会自动从 `public/` 根加载对应图片并应用保存的 `x/y/scale`；没有字段则保留上一张参考图在内存中供跨关复用。
 
+### AI 背景生成工作流（导出路径图 / 导出 SVG）
+
+> 关联实现: `tools/path-editor/index.html` → `exportPathImage()` / `copyPathSVG()`
+
+当你要让 AI（Nano Banana / GPT-4o / Gemini 等）基于当前关卡的路径走向生成新背景时，编辑器提供两种导出形态，都在底部 `#export-bar` 下方（"保存到文件"那一行下面）：
+
+- **导出路径图** → 下载 `level-N-path.png`，尺寸与本关背景图一致
+- **复制 SVG** → 复制仅 `d` 属性字符串到剪贴板（紧凑，适合塞 prompt）
+- **完整 SVG** → 复制可直接渲染的 `<svg>` 文档（含草地底色 + 路径 + 炮台/终点圆，含 `<text>` 标签 `FROG`/`END`）
+
+#### 路径图的几何对齐
+
+导出的 PNG 使用"图片像素空间 ↔ 游戏坐标空间"反变换：
+
+```
+game → image: imgX = (gameX - bg.x) / bg.scale
+image → game: gameX = imgX * bg.scale + bg.x
+```
+
+- 若本关已有 `background`：尺寸和 `{x, y, scale}` 完全复用当前配置 → AI 生成的新图可直接替换 `src` 文件，无需调整 `level-paths.json`
+- 若本关没有 `background`：fallback 到 sample.jpg 规格（704×1530），用 `computeCoverForPlayArea` 算出 cover-fit 的 `{scale, x, y}` —— 恰好对应 `scale ≈ 0.6108, x = 0, y ≈ 23.74`
+
+#### 路径图的视觉风格（为什么这样画）
+
+配色取自 `public/backgrounds/sample.jpg` 真实采样（ImageMagick 从草地、土路、灌木阴影各采几点）。设计目标是让 AI **不把示意图当工程图纸**（否则会拒绝生成或输出示意图变体），同时让路径在 img2img 的 256–512 latent 压缩下依然可辨识：
+
+- **底色**：`#84c52b` 亮黄绿（和真实游戏草地同色）+ 细碎深绿噪点（避免"大面积纯色"被判低信息输入）
+- **灌木层**：已**故意移除**。实测灌木会和路径抢注意力，降低 AI 保留路径的成功率；画面四周的装饰留给 prompt 描述
+- **路径（sunken groove 四层描边）**：
+  1. 近黑 `#2a1a08` 外描（`BALL_DIAMETER + 6`）—— 最强边缘信号
+  2. 中棕 `#8a6a3f` 阴影带（`BALL_DIAMETER + 2`）—— 暗示深度
+  3. 奶白 `#f5ecd0` 主体（`BALL_DIAMETER`）—— 亮度 L≈93，和草地 L≈72 相差 21 级，低分辨率下依然清晰
+  4. 纯白中线（`BALL_DIAMETER × 0.3`, alpha 0.7）—— 方向性信号
+- **炮台**：青蛙绿盘 `#4aa84a` + 深绿环（`#1c4a1c`），暗示青蛙身体色
+- **终点**：金黄盘 `#f4c542` + 深棕环（`#7a4a12`），暗示宝石收集口
+- **起点不画**：路径首点在画面外（off-screen entry），画起点会误导模型生成"实体源头"
+
+所有尺寸用 `px = 1 / bg.scale` 反缩放，保证线宽在图片像素空间里和在游戏空间里对应一致。
+
+PRNG 种子 = `(currentLevel + 1) × 9973`，同一关多次导出草地噪点分布完全一致，方便 AI 多轮迭代时基准不变。
+
+#### SVG 导出
+
+SVG 坐标发射在**游戏空间**（`0..430 × 0..932`），`viewBox="0 0 430 932"`：
+
+- `d` 字符串：quadratic 用 `Q cx cy, x y`，cubic 用 `C c1x c1y, c2x c2y, x y`，坐标保留 1 位小数
+- 完整 SVG 额外包含：草地 `<rect>`、路径 stroke 两层（土色主路 + 深棕描边）、两个标记 `<circle>` + `<text>` 标签 `END`/`FROG`
+
+SVG 主要用于 Nano Banana 这类**接受长 prompt 的图像模型**，把几何约束以文本形式注入。对纯扩散模型（Midjourney / SD）SVG 字符串通常无效，仍应走 PNG 参考图路线。
+
+#### 建议的 Nano Banana prompt 模板
+
+```
+请帮我生成一张祖玛游戏关卡背景图，竖版 704×1530。
+
+【风格参考】附带参考图 —— 卡通草地+灌木主题。
+【结构约束】下面的 SVG 定义精确几何：
+- 绿色矩形 = 草地铺满画面
+- 土色 path = 蜿蜒土路，宽度形状必须完全一致，起点 y 为负表示入口在画面外
+- 金色圆（END）= 宝石漩涡收集口
+- 绿色圆（FROG）= 卡通青蛙炮台
+
+[粘贴完整 SVG]
+
+必须遵守：不要画出 END/FROG 字样、不要有任何球、路径形状严格对齐、
+青蛙和宝石中心精准落在圆心位置。
+```
+
+实测经验：**灌木分布交给 prompt 自由发挥**效果优于"严格按参考图位置"——"可以沿画面边缘和空白处散布，不遮挡路径即可"这种软约束反而让模型更容易完整保留路径。
+
 ## path.js 贝塞尔路径生成
 
 游戏侧 `path.js` 不需要知道 waypoint；它只消费 `curves` 展平后的 `pathParams.points`。

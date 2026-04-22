@@ -151,6 +151,12 @@ body{background:#0e1218;color:#ddd;font-family:-apple-system,sans-serif;display:
     <button class="btn" onclick="loadFromFile()" style="flex:1">从文件加载</button>
     <button class="btn" onclick="exportLevel()" style="flex:0.6">复制本关</button>
   </div>
+
+  <div id="export-bar" style="border-top:none;padding-top:0">
+    <button class="btn" onclick="exportPathImage()" style="flex:1" title="导出本关路径示意图（尺寸与当前背景一致），用作 AI 生成新背景的参考输入">导出路径图</button>
+    <button class="btn" onclick="copyPathSVG('d')" style="flex:1" title="复制 SVG path 的 d 属性字符串">复制 SVG</button>
+    <button class="btn" onclick="copyPathSVG('full')" style="flex:1" title="复制可直接渲染的完整 SVG（含路径 + 炮台 + 终点标记）">完整 SVG</button>
+  </div>
 </div>
 
 <div id="canvas-wrap">
@@ -159,7 +165,7 @@ body{background:#0e1218;color:#ddd;font-family:-apple-system,sans-serif;display:
 </div>
 
 <script type="module">
-import { GAME_WIDTH, GAME_HEIGHT, TAU, BALL_SPACING } from '/src/config.js';
+import { GAME_WIDTH, GAME_HEIGHT, TAU, BALL_SPACING, BALL_DIAMETER } from '/src/config.js';
 import {
   fitQuadraticChain,
   resampleByArcLength,
@@ -2971,6 +2977,314 @@ window.clearLevelBackground = function() {
   delete level.background;
   updateRefButtonsState();
   alert('已清除本关背景（记得保存到文件）');
+};
+
+// Export a path-only reference image sized to match this level's background
+// image so the AI-generated result can drop in using the same {x, y, scale}.
+// When the level has no background yet, fall back to the canonical 704×1530
+// sample dimensions (those are what the reference sample.jpg uses, and
+// produce scale≈0.6108, x=0, y≈23.74 once applied).
+//
+// Layout (image pixel coords):
+//   image→game:  gx = imgX * bg.scale + bg.x
+//   game→image:  imgX = (gx - bg.x) / bg.scale
+// We draw the path in image pixels so the artwork lines up perfectly once
+// the AI-produced replacement is registered with the same bg config.
+window.exportPathImage = function() {
+  const level = LEVELS[currentLevel];
+  if (!level || !level.curves || level.curves.length === 0) {
+    alert('本关还没有路径曲线，无法导出');
+    return;
+  }
+
+  // Decide target image size + the image↔game transform to use.
+  // If the level already has a background configured, honor it exactly so
+  // the exported path image is a drop-in replacement target. Otherwise use
+  // the sample dimensions with a cover-to-play-area fit (same math the UI
+  // uses when "保存为本关背景" first registers an image).
+  const SAMPLE_W = 704;
+  const SAMPLE_H = 1530;
+  let imgW, imgH, bgScale, bgX, bgY;
+  const bg = level.background;
+  if (bg && bg.scale) {
+    // We don't know the authored image's native size unless it's loaded.
+    // Prefer the in-memory refImage when it matches the saved src; fall
+    // back to reconstructing the size from the cover math. This keeps the
+    // export aligned with whatever the runtime will paint.
+    if (refImage && refImageSrc === bg.src) {
+      imgW = refImage.naturalWidth;
+      imgH = refImage.naturalHeight;
+    } else {
+      // Derive a plausible canvas size from the authored scale, assuming
+      // the original was cover-fit. Not perfect, but close enough for a
+      // reference image. The scale/x/y are what actually matter.
+      imgW = Math.round(PLAY_AREA_W / bg.scale);
+      imgH = Math.round(PLAY_AREA_H / bg.scale);
+    }
+    bgScale = bg.scale;
+    bgX = bg.x || 0;
+    bgY = bg.y || 0;
+  } else {
+    // No background yet — use sample dimensions and cover-fit into play area.
+    imgW = SAMPLE_W;
+    imgH = SAMPLE_H;
+    const fit = { // inlined computeCoverForPlayArea for a virtual image
+      scale: Math.max(PLAY_AREA_W / imgW, PLAY_AREA_H / imgH),
+    };
+    bgScale = fit.scale;
+    const drawnW = imgW * bgScale;
+    const drawnH = imgH * bgScale;
+    bgX = PLAY_AREA_X + (PLAY_AREA_W - drawnW) / 2;
+    bgY = PLAY_AREA_Y + (PLAY_AREA_H - drawnH) / 2;
+  }
+
+  // game → image pixel transform
+  const toImg = (pt) => ({
+    x: (pt.x - bgX) / bgScale,
+    y: (pt.y - bgY) / bgScale,
+  });
+  // game-pixels-per-image-pixel is 1/bgScale; scale line widths so they look
+  // the same thickness on the canvas regardless of image resolution.
+  const px = 1 / bgScale;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = imgW;
+  canvas.height = imgH;
+  const ectx = canvas.getContext('2d');
+
+  // Deterministic PRNG so repeated exports of the same level produce the
+  // same grass-texture noise — AI iteration on the same reference stays
+  // stable, which matters when you regenerate the background multiple times.
+  let seed = (currentLevel + 1) * 9973;
+  const rand = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
+
+  // Palette sampled from the reference sample.jpg so the AI sees a figure
+  // that already speaks "Zuma-ish grassy level" — this massively reduces
+  // the chance the model treats the input as a schematic / UML diagram and
+  // refuses or outputs a stylized variant of the schematic itself.
+  const COLOR_GRASS = '#84c52b';      // bright yellow-green, play-area floor
+  const COLOR_GRASS_DARK = '#1c5123'; // deep green for grass-blade noise flecks
+  const COLOR_GRASS_MID = '#3d7a2e';  // mid-green for grass-blade noise flecks
+  // Path palette tuned for maximum luminance separation from the grass so
+  // the track survives aggressive downsampling in img2img pipelines. The
+  // earlier soft-tan (#d9b271) had a luminance close to the grass — at 256
+  // latent resolution the path often "blurred into" the grass and the AI
+  // lost track of it. Now: very pale cream body + near-black rim. The
+  // player perceives a "sunken groove" instead of a colored stripe.
+  const COLOR_PATH = '#f5ecd0';        // near-white cream, high L — reads as "dug-out surface"
+  const COLOR_PATH_RIM = '#2a1a08';    // near-black dark brown, high contrast outer edge
+  const COLOR_PATH_SHADOW = '#8a6a3f'; // mid-brown secondary rim for depth
+  const COLOR_PATH_HIGHLIGHT = '#ffffff'; // pure white centerline glint
+
+  // ── Layer 0: grass base ─────────────────────────────────────────
+  ectx.fillStyle = COLOR_GRASS;
+  ectx.fillRect(0, 0, imgW, imgH);
+  // Subtle grass noise — tiny dark-green flecks so the surface doesn't read
+  // as "empty flat color" (which some generators flag as low-information).
+  for (let i = 0; i < Math.round(imgW * imgH / 900); i++) {
+    const x = rand() * imgW;
+    const y = rand() * imgH;
+    const shade = rand() < 0.5 ? COLOR_GRASS_DARK : COLOR_GRASS_MID;
+    ectx.fillStyle = shade;
+    ectx.globalAlpha = 0.18 + rand() * 0.18;
+    ectx.fillRect(x, y, 2 * px, 2 * px);
+  }
+  ectx.globalAlpha = 1;
+
+  // Layer 1 (bushes) intentionally removed: bushes compete with the path
+  // for the AI's attention and, in practice, cause the model to miss the
+  // track. The prompt can describe desired bush decor in natural language;
+  // the reference image only needs to convey grass + path + markers.
+
+  // ── Layer 2: dirt path rendered as a sunken groove (dark rim → cream
+  // body → white centerline). Designed for maximum luminance separation
+  // from the grass so the track survives img2img downsampling — the path
+  // should remain identifiable even when the model compresses the image
+  // to 256–512 px latent resolution. ──
+  ectx.lineCap = 'round';
+  ectx.lineJoin = 'round';
+  const strokePath = (width, color, alpha = 1) => {
+    ectx.strokeStyle = color;
+    ectx.lineWidth = width;
+    ectx.globalAlpha = alpha;
+    ectx.beginPath();
+    for (let i = 0; i < level.curves.length; i++) {
+      const c = level.curves[i];
+      const p1 = toImg(c.p1);
+      const p2 = toImg(c.p2);
+      if (i === 0) ectx.moveTo(p1.x, p1.y);
+      else ectx.lineTo(p1.x, p1.y);
+      if (isCubicCurve(c)) {
+        const cp1 = toImg(c.cp1);
+        const cp2 = toImg(c.cp2);
+        ectx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, p2.x, p2.y);
+      } else {
+        const cp = toImg(c.cp);
+        ectx.quadraticCurveTo(cp.x, cp.y, p2.x, p2.y);
+      }
+    }
+    ectx.stroke();
+    ectx.globalAlpha = 1;
+  };
+  // Path rendering: four-pass "sunken groove" effect. Width stays at
+  // BALL_DIAMETER (in game coords) per spec — the contrast does the work,
+  // not extra thickness. Order matters: widest/darkest first, narrowest/
+  // brightest last, so each pass shows as a rim around the next.
+  //
+  //   (1) near-black outer rim  ← makes the track unmistakably an edge
+  //   (2) mid-brown shadow      ← depth, reads as "lower than grass"
+  //   (3) cream body            ← the walk surface itself (high L)
+  //   (4) white centerline      ← clear direction signal that survives
+  //                                heavy downsampling
+  // Outer rim width is +6 px total (3 px per side) around the main body,
+  // small enough that the usable path still looks like BALL_DIAMETER wide.
+  // Outer (near-black) — strongest edge signal
+  strokePath((BALL_DIAMETER + 6) * px, COLOR_PATH_RIM);
+  // Shadow band — a softer brown just inside the black rim for depth
+  strokePath((BALL_DIAMETER + 2) * px, COLOR_PATH_SHADOW);
+  // Main cream body
+  strokePath(BALL_DIAMETER * px, COLOR_PATH);
+  // Center highlight (pure white, slightly transparent so it doesn't erase texture)
+  strokePath(BALL_DIAMETER * 0.3 * px, COLOR_PATH_HIGHLIGHT, 0.7);
+
+  // ── Layer 3: feature markers. Colored discs, no text (we let the prompt
+  // explain what each color means). Keeping them large and vivid so the AI
+  // can locate them even after style transfer, but "frog-green" and
+  // "gem-gold" hint at the in-world features — this nudges the model in
+  // the right direction without forcing it to preserve literal symbols.
+  const drawMarker = (ptGame, fillColor, ringColor) => {
+    const p = toImg(ptGame);
+    const r = 34 * px; // slightly smaller than before so markers don't
+                      // outshout the path in the composition
+    // Soft outer halo for visibility — kept tight so it doesn't bleed over
+    // the track when a marker sits near the path
+    const halo = ectx.createRadialGradient(p.x, p.y, r * 0.7, p.x, p.y, r * 1.4);
+    halo.addColorStop(0, fillColor);
+    halo.addColorStop(1, 'rgba(0,0,0,0)');
+    ectx.fillStyle = halo;
+    ectx.globalAlpha = 0.45;
+    ectx.beginPath(); ectx.arc(p.x, p.y, r * 1.4, 0, TAU); ectx.fill();
+    ectx.globalAlpha = 1;
+    // Solid disc
+    ectx.fillStyle = fillColor;
+    ectx.beginPath(); ectx.arc(p.x, p.y, r, 0, TAU); ectx.fill();
+    // Ring
+    ectx.strokeStyle = ringColor;
+    ectx.lineWidth = 4 * px;
+    ectx.stroke();
+    // Inner small dot for structure
+    ectx.fillStyle = ringColor;
+    ectx.beginPath(); ectx.arc(p.x, p.y, r * 0.25, 0, TAU); ectx.fill();
+  };
+
+  // End point (goal) — gold/amber disc, hinting at a gemstone sink
+  const end = getGuideEnd(level);
+  if (end) drawMarker(end, '#f4c542', '#7a4a12');
+
+  // Shooter (frog turret) — frog-body green disc
+  if (level.shooterPos) drawMarker(level.shooterPos, '#4aa84a', '#1c4a1c');
+
+  // Download as PNG.
+  canvas.toBlob((blob) => {
+    if (!blob) { alert('导出失败'); return; }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `level-${currentLevel + 1}-path.png`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, 'image/png');
+};
+
+// Copy the current level's path as an SVG string, either:
+//  - mode='d'    → just the `d` attribute (short, good for prompts)
+//  - mode='full' → a self-contained <svg> document with the path plus
+//                  shooter/end markers. Useful for pasting into prompts
+//                  that accept SVG verbatim, or for quick visual checks.
+//
+// Coordinates are emitted in **game-space** (0..GAME_WIDTH × 0..GAME_HEIGHT)
+// not image-pixel space — that's what matters to a language model trying
+// to reason about shape, and it's what the rest of the level-paths.json
+// also uses. The viewBox carries the mapping so a renderer still places
+// things correctly.
+window.copyPathSVG = function(mode = 'd') {
+  const level = LEVELS[currentLevel];
+  if (!level || !level.curves || level.curves.length === 0) {
+    alert('本关还没有路径曲线');
+    return;
+  }
+
+  // Build the `d` attribute. Quadratic → "Q cx,cy x,y", cubic → "C c1x,c1y c2x,c2y x,y".
+  // We round coords to 1 decimal to keep the string compact for prompts.
+  const fmt = (n) => (Math.round(n * 10) / 10).toString();
+  const parts = [];
+  for (let i = 0; i < level.curves.length; i++) {
+    const c = level.curves[i];
+    if (i === 0) {
+      parts.push(`M ${fmt(c.p1.x)} ${fmt(c.p1.y)}`);
+    } else {
+      // Bridge any gap between consecutive curves with a line-to, matches
+      // what the PNG exporter does. In practice curves are joined, so this
+      // line-to is a no-op of zero length.
+      parts.push(`L ${fmt(c.p1.x)} ${fmt(c.p1.y)}`);
+    }
+    if (isCubicCurve(c)) {
+      parts.push(
+        `C ${fmt(c.cp1.x)} ${fmt(c.cp1.y)}, ${fmt(c.cp2.x)} ${fmt(c.cp2.y)}, ${fmt(c.p2.x)} ${fmt(c.p2.y)}`,
+      );
+    } else {
+      parts.push(`Q ${fmt(c.cp.x)} ${fmt(c.cp.y)}, ${fmt(c.p2.x)} ${fmt(c.p2.y)}`);
+    }
+  }
+  const d = parts.join(' ');
+
+  let out;
+  if (mode === 'd') {
+    out = d;
+  } else {
+    const end = getGuideEnd(level);
+    const sh = level.shooterPos;
+    const markers = [];
+    if (end) {
+      markers.push(
+        `  <!-- End point (goal where marbles are consumed) -->`,
+        `  <circle cx="${fmt(end.x)}" cy="${fmt(end.y)}" r="24" fill="#f4c542" stroke="#7a4a12" stroke-width="3"/>`,
+        `  <text x="${fmt(end.x)}" y="${fmt(end.y + 5)}" font-size="14" font-family="sans-serif" font-weight="bold" fill="#7a4a12" text-anchor="middle">END</text>`,
+      );
+    }
+    if (sh) {
+      markers.push(
+        `  <!-- Shooter (frog turret, launches marbles) -->`,
+        `  <circle cx="${fmt(sh.x)}" cy="${fmt(sh.y)}" r="24" fill="#4aa84a" stroke="#1c4a1c" stroke-width="3"/>`,
+        `  <text x="${fmt(sh.x)}" y="${fmt(sh.y + 5)}" font-size="14" font-family="sans-serif" font-weight="bold" fill="#1c4a1c" text-anchor="middle">FROG</text>`,
+      );
+    }
+    out = [
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${GAME_WIDTH} ${GAME_HEIGHT}" width="${GAME_WIDTH}" height="${GAME_HEIGHT}">`,
+      `  <!-- Level ${currentLevel + 1} path. Marbles enter from off-canvas at the M point -->`,
+      `  <!-- and roll along this curve, getting consumed at the END circle. -->`,
+      `  <rect width="${GAME_WIDTH}" height="${GAME_HEIGHT}" fill="#84c52b"/>`,
+      `  <path d="${d}" fill="none" stroke="#d9b271" stroke-width="${BALL_DIAMETER}" stroke-linecap="round" stroke-linejoin="round"/>`,
+      `  <path d="${d}" fill="none" stroke="#8a6a3f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
+      ...markers,
+      `</svg>`,
+    ].join('\n');
+  }
+
+  navigator.clipboard.writeText(out).then(() => {
+    const kb = (out.length / 1024).toFixed(1);
+    alert(
+      mode === 'd'
+        ? `已复制 SVG path 的 d 字符串（${out.length} 字符）\n\n可直接粘到 AI prompt 里。`
+        : `已复制完整 SVG（${kb} KB）\n\n可直接粘到 AI prompt 里，也可存成 .svg 文件打开查看。`,
+    );
+  }).catch(() => {
+    // Fallback: show it in a prompt so the user can copy manually
+    prompt('自动复制失败，请手动复制：', out);
+  });
 };
 
 // ─── Canvas setup ───────────────────────────────────────────────────

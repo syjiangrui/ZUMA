@@ -338,7 +338,7 @@ The modularization described below has been completed. The codebase is now split
 │       └── screens.js          # Round-end card, all-clear, level select
 ├── tools/
 │   └── path-editor/
-│       └── index.html      # Bezier path editor (Waypoint / Brush / Pen tools)
+│       └── index.html      # Bezier path editor (Waypoint / Brush / Pen tools) + AI bg export (PNG/SVG)
 ├── CLAUDE.md               # This file
 ├── TECHNICAL_ARCHITECTURE.md  # Implementation deep-dive (reference docs)
 └── ZUMA_PLAN.md            # Phase 1/2/3 planning and history
