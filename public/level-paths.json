@@ -5,8 +5,8 @@
     "curves": [
       {
         "p1": {
-          "x": 395,
-          "y": 296
+          "x": 479,
+          "y": 294
         },
         "cp": {
           "x": 270,
@@ -111,6 +111,12 @@
     "shooterPos": {
       "x": 215,
       "y": 466
+    },
+    "background": {
+      "src": "backgrounds/level-1.jpeg",
+      "x": 0,
+      "y": 23.74,
+      "scale": 0.6108
     }
   },
   {
@@ -265,6 +271,12 @@
     "shooterPos": {
       "x": 215,
       "y": 520
+    },
+    "background": {
+      "src": "backgrounds/level-2.jpeg",
+      "x": 0,
+      "y": 23.74,
+      "scale": 0.6108
     }
   },
   {
