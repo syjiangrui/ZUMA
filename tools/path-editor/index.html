@@ -3129,26 +3129,27 @@ window.exportPathImage = function() {
     ectx.stroke();
     ectx.globalAlpha = 1;
   };
-  // Path rendering: four-pass "sunken groove" effect. Width stays at
-  // BALL_DIAMETER (in game coords) per spec — the contrast does the work,
-  // not extra thickness. Order matters: widest/darkest first, narrowest/
-  // brightest last, so each pass shows as a rim around the next.
+  // Path rendering: four-pass "sunken groove" effect. Main body is sized
+  // at 0.75 × BALL_DIAMETER so the in-game balls sit slightly wider than
+  // the visible track — this reads better than a path that's clearly
+  // thicker than the marbles rolling on it. Order matters: widest/darkest
+  // first, narrowest/brightest last, so each pass shows as a rim around
+  // the next.
   //
   //   (1) near-black outer rim  ← makes the track unmistakably an edge
   //   (2) mid-brown shadow      ← depth, reads as "lower than grass"
   //   (3) cream body            ← the walk surface itself (high L)
   //   (4) white centerline      ← clear direction signal that survives
   //                                heavy downsampling
-  // Outer rim width is +6 px total (3 px per side) around the main body,
-  // small enough that the usable path still looks like BALL_DIAMETER wide.
+  const PATH_BODY = BALL_DIAMETER * 0.75;
   // Outer (near-black) — strongest edge signal
-  strokePath((BALL_DIAMETER + 6) * px, COLOR_PATH_RIM);
+  strokePath((PATH_BODY + 4) * px, COLOR_PATH_RIM);
   // Shadow band — a softer brown just inside the black rim for depth
-  strokePath((BALL_DIAMETER + 2) * px, COLOR_PATH_SHADOW);
+  strokePath((PATH_BODY + 1.5) * px, COLOR_PATH_SHADOW);
   // Main cream body
-  strokePath(BALL_DIAMETER * px, COLOR_PATH);
+  strokePath(PATH_BODY * px, COLOR_PATH);
   // Center highlight (pure white, slightly transparent so it doesn't erase texture)
-  strokePath(BALL_DIAMETER * 0.3 * px, COLOR_PATH_HIGHLIGHT, 0.7);
+  strokePath(PATH_BODY * 0.3 * px, COLOR_PATH_HIGHLIGHT, 0.7);
 
   // ── Layer 3: feature markers. Colored discs, no text (we let the prompt
   // explain what each color means). Keeping them large and vivid so the AI
@@ -3267,7 +3268,7 @@ window.copyPathSVG = function(mode = 'd') {
       `  <!-- Level ${currentLevel + 1} path. Marbles enter from off-canvas at the M point -->`,
       `  <!-- and roll along this curve, getting consumed at the END circle. -->`,
       `  <rect width="${GAME_WIDTH}" height="${GAME_HEIGHT}" fill="#84c52b"/>`,
-      `  <path d="${d}" fill="none" stroke="#d9b271" stroke-width="${BALL_DIAMETER}" stroke-linecap="round" stroke-linejoin="round"/>`,
+      `  <path d="${d}" fill="none" stroke="#d9b271" stroke-width="${BALL_DIAMETER * 0.75}" stroke-linecap="round" stroke-linejoin="round"/>`,
       `  <path d="${d}" fill="none" stroke="#8a6a3f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`,
       ...markers,
       `</svg>`,
