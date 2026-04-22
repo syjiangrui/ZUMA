@@ -2635,10 +2635,10 @@ function syncRefImageToLevel() {
   if (bg && bg.src) {
     loadRefImageFromSrc(bg.src, { x: bg.x, y: bg.y, scale: bg.scale });
   } else {
-    // Keep the previously uploaded image so authors can reuse one ref across
-    // levels if they want. Only clear when explicitly removed.
-    // If you prefer auto-clear, uncomment:
-    // refImage = null; refImageSrc = null;
+    // 目标关卡没有背景图：清空当前缓存，避免从有背景的关卡切过来时残留上一张图。
+    refImage = null;
+    refImageSrc = null;
+    refUploadedName = null;
     updateRefButtonsState();
     render();
   }
