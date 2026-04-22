@@ -2221,15 +2221,16 @@ cv.addEventListener('wheel', e => {
   e.preventDefault();
 
   if (e.ctrlKey) {
-    // Ctrl+scroll or pinch-to-zoom: zoom in/out
-    const step = Math.min(Math.abs(e.deltaY), 200) / 200;
-    const direction = e.deltaY > 0 ? -1 : 1;
-    const factor = 1 + direction * step * 0.08;
+    // Ctrl+scroll 或 Mac 触控板双指缩放：用指数缩放保证 deltaY 小时也有足够步进。
+    // Mac 触控板缩放 deltaY 通常 1–10，用 exp 做加速，单次可明显看到变化；
+    // 鼠标滚轮 deltaY 一般 ≥100，系数小一些避免过冲。
+    const sensitivity = Math.abs(e.deltaY) < 50 ? 0.017 : 0.0021;
+    const factor = Math.exp(-e.deltaY * sensitivity);
     const mx = e.offsetX, my = e.offsetY;
     panX = mx - (mx - panX) * factor;
     panY = my - (my - panY) * factor;
     scale *= factor;
-    scale = Math.max(0.2, Math.min(2, scale));
+    scale = Math.max(0.2, Math.min(4, scale));
   } else {
     // Regular scroll: pan the canvas
     panX -= e.deltaX;
