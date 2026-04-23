@@ -5,6 +5,29 @@ import { drawBall } from './ball-textures.js';
 // Background layers, path track, goal, chain, projectile, aim guide,
 // shooter, particles, and static scene cache.
 
+// 全屏背景渐变 —— 不依赖玩法区坐标，只铺满 (0,0,w,h)。
+// drawBackground 里"基于 shooter 位置的装饰（石板、祭坛环、altar glow）"
+// 继续留在 drawBackground 里用于玩法区。
+export function drawScreenGradient(ctx, w, h) {
+  // 顶部青绿 canopy —— 原本覆盖 0~176 的玩法区高度，全屏时按同比例延伸。
+  const canopyH = Math.round(h * 176 / GAME_HEIGHT);
+  const canopy = ctx.createLinearGradient(0, 0, 0, canopyH);
+  canopy.addColorStop(0, "#17383e");
+  canopy.addColorStop(0.55, "#10272d");
+  canopy.addColorStop(1, "#0a1519");
+  ctx.fillStyle = canopy;
+  ctx.fillRect(0, 0, w, canopyH);
+
+  // 底部石板 slab —— 原本从 HUD_HEIGHT 到 GAME_HEIGHT，全屏时从同比例位置到 h。
+  const slabStart = Math.round(h * 118 / GAME_HEIGHT);
+  const slab = ctx.createLinearGradient(0, slabStart, 0, h);
+  slab.addColorStop(0, "#7f8990");
+  slab.addColorStop(0.48, "#6e7880");
+  slab.addColorStop(1, "#5b646d");
+  ctx.fillStyle = slab;
+  ctx.fillRect(0, slabStart, w, h - slabStart);
+}
+
 export function drawBackground(game, ctx) {
   const canopy = ctx.createLinearGradient(0, 0, 0, 176);
   canopy.addColorStop(0, "#17383e");
