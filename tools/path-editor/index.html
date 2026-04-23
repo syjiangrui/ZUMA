@@ -38,8 +38,13 @@ body{background:#0e1218;color:#ddd;font-family:-apple-system,sans-serif;display:
 .btn:hover{background:#2a3a50;border-color:#4a5a6a}
 .btn.primary{background:#3a5038;border-color:#6a9a64;color:#c0f0b0}
 .btn.primary:hover{background:#4a6048}
-#canvas-wrap{flex:1;display:flex;align-items:center;justify-content:center;background:#080c10;position:relative}
+#canvas-wrap{flex:1;display:flex;align-items:center;justify-content:center;background:#080c10;position:relative;min-width:0}
 #canvas-wrap canvas{border:1px solid #2a3444;border-radius:8px;box-shadow:0 0 40px rgba(0,0,0,0.5);cursor:crosshair}
+#preview-wrap{width:240px;min-width:160px;background:#0e1218;display:flex;flex-direction:column;align-items:center}
+#preview-resizer{width:5px;cursor:col-resize;background:#2a3444;position:relative;z-index:10;flex-shrink:0;transition:background .15s}
+#preview-resizer:hover,#preview-resizer.active{background:#f0d57a}
+#preview-label{color:#5a6a7a;font-size:11px;padding:8px 0 4px;font-family:Georgia;letter-spacing:0.5px}
+#previewCv{border:1px solid #2a3444;border-radius:6px;box-shadow:0 0 20px rgba(0,0,0,0.4)}
 #hint{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);color:#3a4a5a;font-size:11px;pointer-events:none}
 #ref-bar{padding:8px 16px;border-top:1px solid #2a3444;display:flex;flex-direction:column;gap:6px}
 #ref-bar .ref-head{display:flex;align-items:center;gap:6px;font-size:11px;color:#5a6a7a}
@@ -164,8 +169,14 @@ body{background:#0e1218;color:#ddd;font-family:-apple-system,sans-serif;display:
   <div id="hint">◎ Waypoint：点击布点后再一键拟合 | 拖拽端点和控制点 | ✎ 笔刷模式直接作画 | Ctrl+滚轮缩放 | 空格+拖拽/中键平移 | Alt+拖拽移动参考图</div>
 </div>
 
+<div id="preview-resizer"></div>
+<div id="preview-wrap">
+  <div id="preview-label">渲染预览</div>
+  <canvas id="previewCv"></canvas>
+</div>
+
 <script type="module">
-import { GAME_WIDTH, GAME_HEIGHT, TAU, BALL_SPACING, BALL_DIAMETER } from '/src/config.js';
+import { GAME_WIDTH, GAME_HEIGHT, TAU, BALL_SPACING, BALL_DIAMETER, BALL_RADIUS, BALL_PALETTES, TEMPLE_GLYPH_VARIANTS, HUD_HEIGHT, BOTTOM_BUTTON_HEIGHT } from '/src/config.js';
 import {
   fitQuadraticChain,
   resampleByArcLength,
@@ -173,6 +184,20 @@ import {
   sampleCubicBezier,
   simplifyPolylineRdp,
 } from '/src/path-fit.js';
+import { createPath as createPathFn, getPointAtDistance as getPointAtDistanceFn } from '/src/path.js';
+import {
+  drawBackground,
+  drawTrack,
+  drawGoal,
+  drawChain,
+  drawShooter,
+  createStaticSceneCache,
+} from '/src/render/scene.js';
+import {
+  createBallPatternCanvas,
+  createBallRenderCache,
+  createFrogCache,
+} from '/src/render/ball-textures.js';
 
 // ─── Color palette for curve segments ───────────────────────────────
 const CURVE_COLORS = [
@@ -383,10 +408,12 @@ function upgradeLevelToCubic(level) {
   if (level.pathType === 'cubic') return;
   level.curves = level.curves.map(c => (isCubicCurve(c) ? c : quadraticToCubic(c)));
   level.pathType = 'cubic';
+  previewDirty = true;
 }
 
 function clearFitStats(level = LEVELS[currentLevel]) {
   level._fitStats = null;
+  previewDirty = true;
 }
 
 function setFitStats(level, kind, stats = {}, extra = {}) {
@@ -600,6 +627,7 @@ function exitPenMode({ keepChanges = false } = {}) {
   updateCanvasCursor();
   buildCurveList();
   updateWaypointMeta();
+  previewDirty = true;
 }
 
 function finalizePenPath() {
@@ -1114,6 +1142,7 @@ function render() {
   }
 
   ctx.restore();
+  renderPreview();
 }
 
 // Cubic handle endpoint: a small hollow circle, visually distinct from the
@@ -2080,6 +2109,7 @@ cv.addEventListener('mousemove', e => {
     level.shooterPos.y = Math.round(Math.max(0, Math.min(GAME_HEIGHT, g.y)));
     document.getElementById('shX').value = level.shooterPos.x;
     document.getElementById('shY').value = level.shooterPos.y;
+    previewDirty = true;
   } else if (dragging.type === 'waypoint') {
     const pt = level.waypoints[dragging.index];
     if (pt) {
@@ -2541,6 +2571,7 @@ window.updateShooter = function() {
   const level = LEVELS[currentLevel];
   level.shooterPos.x = Number(document.getElementById('shX').value);
   level.shooterPos.y = Number(document.getElementById('shY').value);
+  previewDirty = true;
   updateWaypointMeta();
   render();
 };
@@ -2631,6 +2662,7 @@ function switchLevel(index, activeBtn = null) {
   syncRefImageToLevel();
   buildCurveList();
   updateWaypointMeta();
+  previewDirty = true;
   render();
 }
 
@@ -3288,6 +3320,268 @@ window.copyPathSVG = function(mode = 'd') {
   });
 };
 
+// ─── Render preview ─────────────────────────────────────────────────
+// Lightweight game-rendered preview of the current level using the real
+// rendering pipeline (background, track, goal, ball chain, frog).
+
+const previewCv = document.getElementById('previewCv');
+const previewCtx = previewCv.getContext('2d');
+let previewGame = null;   // lightweight game context for rendering
+let previewDirty = true;  // set true when path/shooter data changes
+
+// Initialize preview textures (called once).
+function initPreview() {
+  previewCv.width = GAME_WIDTH;
+  previewCv.height = GAME_HEIGHT;
+
+  previewGame = {
+    ctx: previewCtx,
+    shooter: { x: 0, y: 0, angle: -Math.PI / 2 },
+    pathPoints: [],
+    totalPathLength: 0,
+    cachedTrackPath: new Path2D(),
+    chain: [],
+    ballPatterns: BALL_PALETTES.map((palette, index) =>
+      createBallPatternCanvas(palette, TEMPLE_GLYPH_VARIANTS[index % TEMPLE_GLYPH_VARIANTS.length])
+    ),
+    ballBaseCache: [],
+    ballOverCache: null,
+    ballCachePad: 0,
+    bandShadeCache: null,
+    frogCacheBehind: null,
+    frogCacheFront: null,
+    frogCacheCx: 0,
+    frogCacheCy: 0,
+    currentPaletteIndex: 0,
+    levelConfig: null,
+    backgroundImages: {},
+    staticSceneCache: null,
+    hudPanelCache: null,
+    particles: [],
+    projectile: null,
+  };
+  createBallRenderCache(previewGame);
+  createFrogCache(previewGame);
+
+  // Preload all level background images eagerly
+  // Use absolute paths since the editor is under /tools/path-editor/
+  const seen = new Set();
+  for (const level of LEVELS) {
+    const rawSrc = level.background && level.background.src;
+    if (!rawSrc || seen.has(rawSrc)) continue;
+    seen.add(rawSrc);
+    const img = new Image();
+    const absSrc = rawSrc.startsWith('/') ? rawSrc : '/' + rawSrc;
+    img.onload = () => {
+      previewGame.backgroundImages[rawSrc] = img;
+      // If this image belongs to the current level, re-render
+      const curBg = LEVELS[currentLevel].background;
+      if (curBg && curBg.src === rawSrc) {
+        previewGame.staticSceneCache = null;
+        renderPreview();
+      }
+    };
+    img.src = absSrc;
+  }
+
+  previewDirty = true;
+  resizePreview();
+}
+
+function resizePreview() {
+  const wrap = document.getElementById('preview-wrap');
+  const maxH = wrap.clientHeight - 40;
+  const maxW = wrap.clientWidth - 12;
+  if (maxW <= 0 || maxH <= 0) return;
+  const ratio = GAME_WIDTH / GAME_HEIGHT;
+  let dispW, dispH;
+  if (maxW / maxH > ratio) {
+    dispH = maxH;
+    dispW = dispH * ratio;
+  } else {
+    dispW = maxW;
+    dispH = dispW / ratio;
+  }
+  previewCv.style.width = Math.floor(dispW) + 'px';
+  previewCv.style.height = Math.floor(dispH) + 'px';
+}
+
+// ─── Preview panel drag-resize ─────────────────────────────────────
+(function setupPreviewResizer() {
+  const resizer = document.getElementById('preview-resizer');
+  const previewWrap = document.getElementById('preview-wrap');
+  let dragging = false;
+
+  resizer.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    dragging = true;
+    resizer.classList.add('active');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const bodyRect = document.body.getBoundingClientRect();
+    const newWidth = bodyRect.right - e.clientX;
+    const clamped = Math.max(160, Math.min(newWidth, bodyRect.width * 0.6));
+    previewWrap.style.width = clamped + 'px';
+    resizeCanvas();  // recalculate editor canvas size since #canvas-wrap shrank
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    resizer.classList.remove('active');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  });
+})();
+
+// Convert editor level curves into levelConfig format usable by createPath().
+function buildPreviewLevelConfig(level) {
+  const isCubic = isCubicLevel(level);
+  const points = [];
+  if (isCubic) {
+    for (const c of level.curves) {
+      if (isCubicCurve(c)) {
+        points.push({ x: c.p1.x, y: c.p1.y });
+        points.push({ x: c.cp1.x, y: c.cp1.y });
+        points.push({ x: c.cp2.x, y: c.cp2.y });
+        points.push({ x: c.p2.x, y: c.p2.y });
+      } else {
+        // Upgrade quadratic to cubic
+        const cp1 = {
+          x: c.p1.x + (2 / 3) * (c.cp.x - c.p1.x),
+          y: c.p1.y + (2 / 3) * (c.cp.y - c.p1.y),
+        };
+        const cp2 = {
+          x: c.p2.x + (2 / 3) * (c.cp.x - c.p2.x),
+          y: c.p2.y + (2 / 3) * (c.cp.y - c.p2.y),
+        };
+        points.push({ x: c.p1.x, y: c.p1.y });
+        points.push({ x: cp1.x, y: cp1.y });
+        points.push({ x: cp2.x, y: cp2.y });
+        points.push({ x: c.p2.x, y: c.p2.y });
+      }
+    }
+    return { pathType: 'cubic', pathParams: { points }, shooterPos: level.shooterPos };
+  }
+  // Quadratic
+  for (const c of level.curves) {
+    points.push({ x: c.p1.x, y: c.p1.y });
+    points.push(c.cp ? { x: c.cp.x, y: c.cp.y } : { x: c.cp1.x, y: c.cp1.y });
+    points.push({ x: c.p2.x, y: c.p2.y });
+  }
+  return { pathType: 'bezier', pathParams: { points }, shooterPos: level.shooterPos };
+}
+
+// Build path data and ball chain for the preview from the current editor level.
+function buildPreviewData() {
+  const level = LEVELS[currentLevel];
+  const pg = previewGame;
+
+  pg.shooter.x = level.shooterPos.x;
+  pg.shooter.y = level.shooterPos.y;
+  pg.shooter.angle = -Math.PI / 2;
+
+  // Build path from curves
+  if (level.curves.length === 0) {
+    pg.pathPoints = [];
+    pg.totalPathLength = 0;
+    pg.cachedTrackPath = new Path2D();
+    pg.chain = [];
+    pg.levelConfig = { shooterPos: level.shooterPos };
+    pg.staticSceneCache = null;
+    return;
+  }
+
+  const cfg = buildPreviewLevelConfig(level);
+  pg.levelConfig = cfg;
+  // Attach background config BEFORE createStaticSceneCache so it can use the image
+  const bgCfg = level.background;
+  if (bgCfg && bgCfg.src) {
+    pg.levelConfig.background = bgCfg;
+  }
+
+  const pathData = createPathFn(pg.shooter.x, pg.shooter.y, cfg.pathType, cfg.pathParams);
+  pg.pathPoints = pathData.pathPoints;
+  pg.totalPathLength = pathData.totalPathLength;
+  pg.cachedTrackPath = pathData.cachedTrackPath;
+
+  // Build static ball chain
+  const chainCount = level._chainCount || 20;
+  const colorCount = Math.min(chainCount > 30 ? 5 : chainCount > 22 ? 4 : 3, BALL_PALETTES.length);
+  const headS = (chainCount - 1) * BALL_SPACING + 50; // visible portion
+  const chain = [];
+  for (let i = 0; i < chainCount; i++) {
+    const s = headS - i * BALL_SPACING;
+    const ball = {
+      id: i + 1,
+      paletteIndex: i % colorCount,
+      radius: BALL_RADIUS,
+      s,
+      rotation: s / BALL_RADIUS,
+      offset: 0,
+      offsetMode: 'idle',
+      impact: 0,
+      screenX: 0,
+      screenY: 0,
+      pathAngle: 0,
+      lastActionId: null,
+    };
+    // Compute screen position
+    if (s >= 0 && s <= pg.totalPathLength) {
+      const pt = getPointAtDistanceFn(pg.pathPoints, pg.totalPathLength, s);
+      ball.screenX = pt.x;
+      ball.screenY = pt.y;
+      ball.pathAngle = pt.angle;
+    }
+    chain.push(ball);
+  }
+  pg.chain = chain;
+
+  // Invalidate static scene cache
+  pg.staticSceneCache = null;
+}
+
+// Render the preview canvas using the game's real rendering pipeline.
+function renderPreview() {
+  if (!previewGame) return;
+
+  if (previewDirty) {
+    previewDirty = false;
+    buildPreviewData();
+  }
+
+  const pg = previewGame;
+  const pCtx = previewCtx;
+
+  pCtx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+  // No path data — just draw dark background
+  if (pg.pathPoints.length === 0) {
+    pCtx.fillStyle = '#0a1519';
+    pCtx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    pCtx.fillStyle = 'rgba(90, 106, 122, 0.5)';
+    pCtx.font = '14px -apple-system, sans-serif';
+    pCtx.textAlign = 'center';
+    pCtx.fillText('无路径数据', GAME_WIDTH / 2, GAME_HEIGHT / 2);
+    pCtx.textAlign = 'start';
+    return;
+  }
+
+  // Build static scene cache if needed
+  if (!pg.staticSceneCache) {
+    createStaticSceneCache(pg);
+  }
+
+  // Draw the game scene layers
+  pCtx.drawImage(pg.staticSceneCache, 0, 0);
+  drawChain(pg, pCtx);
+  drawShooter(pg, pCtx);
+}
+
 // ─── Canvas setup ───────────────────────────────────────────────────
 function resizeCanvas() {
   const wrap = document.getElementById('canvas-wrap');
@@ -3301,6 +3595,7 @@ function resizeCanvas() {
   // Center the game area in the canvas
   panX = (w - GAME_WIDTH * scale) / 2;
   panY = (h - GAME_HEIGHT * scale) / 2;
+  resizePreview();
   render();
 }
 
@@ -3326,6 +3621,7 @@ async function init() {
   buildCurveList();
   updateWaypointMeta();
   syncRefImageToLevel();
+  initPreview();
   resizeCanvas();
 }
 init();
