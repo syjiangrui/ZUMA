@@ -6,6 +6,9 @@
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no"
     />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Zuma Prototype</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
@@ -21,6 +24,13 @@
         <canvas id="gameCanvas" aria-label="Zuma game canvas"></canvas>
       </section>
     </main>
+
+    <div class="rotate-hint" aria-hidden="true">
+      <div class="rotate-hint__card">
+        <div class="rotate-hint__icon">&#8635;</div>
+        <p class="rotate-hint__text">请竖屏使用</p>
+      </div>
+    </div>
 
     <script type="module" src="/src/main.js"></script>
   </body>

@@ -15,6 +15,12 @@
   --shell-pad-bottom: max(12px, env(safe-area-inset-bottom, 12px));
   --shell-pad-left: max(12px, env(safe-area-inset-left, 12px));
   --shell-pad-right: max(12px, env(safe-area-inset-right, 12px));
+  /* Raw safe-area values (no min fallback) for JS to read and compute
+     mobile layout offsets. 0px on non-notched devices / desktop. */
+  --raw-sat: env(safe-area-inset-top, 0px);
+  --raw-sab: env(safe-area-inset-bottom, 0px);
+  --raw-sal: env(safe-area-inset-left, 0px);
+  --raw-sar: env(safe-area-inset-right, 0px);
 }
 
 * {
@@ -138,5 +144,89 @@ body {
 
   .hud h1 {
     font-size: 1.9rem;
+  }
+}
+
+/* ---------------------------------------------------------------
+   Mobile full-screen mode
+   On touch devices with narrow viewports (< 700px), the canvas
+   fills the entire screen. No phone-frame border-radius/shadow,
+   no shell padding — the game content extends into the safe-area
+   zones (notch / home indicator) with the HUD and bottom-button
+   areas stretching to absorb the extra space. The JS resize()
+   handler switches the canvas backing store to match the viewport
+   and applies a coordinate transform so all rendering code
+   continues to work in the 430×932 logical space.
+   --------------------------------------------------------------- */
+
+@media (max-width: 699px) and (pointer: coarse) {
+  .app-shell {
+    padding: 0;
+  }
+
+  .game-frame {
+    /* Make the frame fill the shell so the canvas can be sized
+       with 100vw/100dvh without being clipped by the flex container. */
+    position: fixed;
+    inset: 0;
+    display: block;
+  }
+
+  #gameCanvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100dvh;
+    aspect-ratio: auto;
+    border-radius: 0;
+    box-shadow: none;
+    background: none;
+  }
+}
+
+/* Rotate hint — shown when a touch device is in landscape with
+   insufficient height to play comfortably. */
+.rotate-hint {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(6, 10, 12, 0.92);
+  place-items: center;
+}
+
+.rotate-hint__card {
+  text-align: center;
+  padding: 32px 48px;
+  border-radius: 20px;
+  border: 1px solid rgba(202, 231, 218, 0.12);
+  background: rgba(20, 50, 52, 0.8);
+}
+
+.rotate-hint__icon {
+  font-size: 48px;
+  line-height: 1;
+  margin-bottom: 12px;
+  animation: rotate-hint-spin 2s ease-in-out infinite;
+}
+
+@keyframes rotate-hint-spin {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-90deg); }
+}
+
+.rotate-hint__text {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-main);
+}
+
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 520px) {
+  .rotate-hint {
+    display: grid;
+  }
+  #gameCanvas {
+    display: none;
   }
 }

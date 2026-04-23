@@ -1,5 +1,5 @@
 import {
-  GAME_WIDTH, GAME_HEIGHT, TAU,
+  GAME_WIDTH, GAME_HEIGHT, HUD_HEIGHT, BOTTOM_BUTTON_HEIGHT, TAU,
   PARTICLE_COUNT_PER_BALL, PARTICLE_LIFETIME, PARTICLE_SPEED_MIN,
   PARTICLE_SPEED_MAX, PARTICLE_GRAVITY, PARTICLE_MAX_TOTAL,
   BALL_PALETTES,
@@ -332,6 +332,23 @@ class ZumaGame {
 
   fireProjectile() {
     fireProjectileFn(this);
+  }
+
+  // --- Mobile full-screen detection ------------------------------------
+
+  isMobileDevice() {
+    // Touch-primary device with a narrow viewport — these get full-screen
+    // mode with the canvas filling 100vw×100dvh and safe-area-aware layout.
+    return (window.matchMedia?.('(pointer: coarse)').matches ??
+            ('ontouchstart' in window)) &&
+           window.innerWidth < 700;
+  }
+
+  // Read the raw safe-area inset values (0 on desktop / non-notched devices).
+  getSafeAreaInset(side) {
+    const prop = `--raw-sa${side[0]}`;
+    const val = getComputedStyle(document.documentElement).getPropertyValue(prop);
+    return parseFloat(val) || 0;
   }
 
   // --- Core game loop -----------------------------------------------------
@@ -683,18 +700,73 @@ class ZumaGame {
 
   resize() {
     const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
-    this.canvas.width = GAME_WIDTH * dpr;
-    this.canvas.height = GAME_HEIGHT * dpr;
-    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    if (this.isMobileDevice()) {
+      // Mobile full-screen: canvas fills the entire viewport.
+      // Scale based on WIDTH so the game always fills horizontally — no
+      // side gutters.  The game starts at the TOP of the screen so its
+      // dark canopy / slab gradients naturally extend behind the notch
+      // and home-indicator.  HUD buttons are shifted down to avoid the
+      // notch (they overlap into the play-area buffer).  Any gap at the
+      // bottom (very tall phones) is filled with the slab gradient.
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      this.canvas.width = Math.round(vw * dpr);
+      this.canvas.height = Math.round(vh * dpr);
+
+      const scale = vw / GAME_WIDTH;
+      const offsetY = 0;
+
+      // HUD shift: push the HUD elements below the safe-area / notch so
+      // they remain accessible.  The HUD is allowed to overlap into the
+      // top of the play area (which has buffer).
+      const safeTop = this.getSafeAreaInset('top');
+      // Game y=0 is at screen y=0 (offsetY=0).
+      // We want HUD panel top (game y ≈ 14 + hudShift) to sit below safeTop.
+      // (14 + hudShift) * scale >= safeTop
+      const hudShift = safeTop > 0
+        ? Math.max(0, safeTop / scale - 14)
+        : 0;
+
+      this.mobileLayout = {
+        active: true,
+        scale,
+        dpr,
+        offsetX: 0,
+        offsetY,
+        hudShift,
+        safeTop,
+        safeBottom: this.getSafeAreaInset('bottom'),
+        screenWidth: vw,
+        screenHeight: vh,
+      };
+
+      this.ctx.setTransform(
+        scale * dpr, 0, 0, scale * dpr,
+        0, 0,
+      );
+    } else {
+      // Desktop / tablet: fixed 430×932 canvas with DPR scaling.
+      this.canvas.width = GAME_WIDTH * dpr;
+      this.canvas.height = GAME_HEIGHT * dpr;
+      this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      this.mobileLayout = null;
+    }
   }
 
   // Convert screen coordinates back into the fixed logical canvas space.
   updatePointer(event) {
     const rect = this.canvas.getBoundingClientRect();
-    const scaleX = GAME_WIDTH / rect.width;
-    const scaleY = GAME_HEIGHT / rect.height;
-    this.pointer.x = (event.clientX - rect.left) * scaleX;
-    this.pointer.y = (event.clientY - rect.top) * scaleY;
+    if (this.mobileLayout) {
+      const { scale } = this.mobileLayout;
+      this.pointer.x = (event.clientX - rect.left) / scale;
+      this.pointer.y = (event.clientY - rect.top) / scale;
+    } else {
+      const scaleX = GAME_WIDTH / rect.width;
+      const scaleY = GAME_HEIGHT / rect.height;
+      this.pointer.x = (event.clientX - rect.left) * scaleX;
+      this.pointer.y = (event.clientY - rect.top) * scaleY;
+    }
   }
 
   isPointInsideRect(x, y, rect) {
@@ -708,15 +780,18 @@ class ZumaGame {
   }
 
   getHudRestartButtonRect() {
-    return { x: GAME_WIDTH - 78, y: 18, w: 64, h: 38 };
+    const s = this.mobileLayout?.hudShift || 0;
+    return { x: GAME_WIDTH - 78, y: 18 + s, w: 64, h: 38 };
   }
 
   getHudSoundButtonRect() {
-    return { x: GAME_WIDTH - 120, y: 18, w: 36, h: 38 };
+    const s = this.mobileLayout?.hudShift || 0;
+    return { x: GAME_WIDTH - 120, y: 18 + s, w: 36, h: 38 };
   }
 
   getHudNextPreviewRect() {
-    return { x: GAME_WIDTH - 170, y: 16, w: 44, h: 44 };
+    const s = this.mobileLayout?.hudShift || 0;
+    return { x: GAME_WIDTH - 170, y: 16 + s, w: 44, h: 44 };
   }
 
   // HUD and modal buttons share the same source rects for drawing and hit

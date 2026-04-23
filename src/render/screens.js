@@ -11,9 +11,8 @@ export function drawRoundStateCard(game, ctx) {
 
   const isWin = game.gameState === "win";
   ctx.save();
-  // Dim overlay
-  ctx.fillStyle = "rgba(6, 10, 12, 0.52)";
-  ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+  // Dim overlay is now drawn by the top-level render() function (covers
+  // safe-area zones on mobile too), so we skip it here.
 
   const panelWidth = 320;
   const panelHeight = 370;
@@ -481,8 +480,20 @@ function drawLevelButton(game, ctx, level) {
 }
 
 export function drawAllClearScreen(game, ctx) {
-  ctx.fillStyle = "rgba(6, 10, 12, 0.6)";
-  ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+  // Dim overlay — on mobile this is already covered by the top-level
+  // render() dim, but we draw it again for the all-clear overlay at a
+  // slightly stronger opacity. On mobile, fill the full canvas.
+  const mobile = game.mobileLayout;
+  if (mobile) {
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = "rgba(6, 10, 12, 0.6)";
+    ctx.fillRect(0, 0, game.canvas.width, game.canvas.height);
+    ctx.restore();
+  } else {
+    ctx.fillStyle = "rgba(6, 10, 12, 0.6)";
+    ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+  }
 
   const midX = GAME_WIDTH / 2;
   const panelW = 340;

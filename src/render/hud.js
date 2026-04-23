@@ -5,8 +5,11 @@ import { drawBall } from './ball-textures.js';
 // Top HUD overlay (score/state/buttons), next-ball preview,
 // sound toggle, restart/back buttons, and floating match feedback.
 
-export function drawOverlay(game, ctx) {
+export function drawOverlay(game, ctx, hudShift = 0) {
   // Stone panel backgrounds are pre-rendered; text is drawn live.
+  // On mobile, hudShift > 0 means the panel background stays at y=0 (so
+  // its color extends behind the notch) while interactive elements (buttons,
+  // preview ball) shift down to avoid the notch.
   if (!game.hudPanelCache) {
     game.hudPanelCache = document.createElement("canvas");
     game.hudPanelCache.width = GAME_WIDTH;
@@ -127,6 +130,8 @@ export function drawOverlay(game, ctx) {
       hCtx.fill();
     }
   }
+  // Panel background — always drawn at y=0 so its color extends behind
+  // the notch on mobile.
   ctx.drawImage(game.hudPanelCache, 0, 0);
 
   // Title with manual offset shadow (no shadowBlur — perf)
@@ -171,6 +176,8 @@ export function drawOverlay(game, ctx) {
   const comboText = game.getComboHudText();
   ctx.fillText(comboText, 128, 103);
 
+  // Interactive elements — their rects already include hudShift from
+  // game.getHudXxxRect(), so they render at the shifted position directly.
   drawHudNextPreview(game, ctx);
   drawSoundButton(game, ctx);
   drawRestartButton(
