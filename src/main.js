@@ -610,6 +610,7 @@ class ZumaGame {
   // fires on pointerup so players can drag to aim, then release to shoot.
   bindEvents() {
     window.addEventListener("resize", () => this.resize());
+    window.addEventListener("orientationchange", () => this.resize());
 
     this.canvas.addEventListener("pointerdown", (event) => {
       if (event.button !== undefined && event.button !== 0) {
