@@ -11,6 +11,7 @@ import {
   drawAimGuide,
   drawShooter,
   createStaticSceneCache,
+  drawScreenGradient,
 } from './scene.js';
 import { drawOverlay, drawMatchFeedback } from './hud.js';
 import {
@@ -38,7 +39,36 @@ export function createTextures(game) {
 
 export function render(game) {
   const ctx = game.ctx;
-  ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+  const { screenW, screenH, scale, offsetX, offsetY, dpr } = game.viewport;
+
+  // ---- Stage 1: screen-pixel coord system — paint fullscreen background ----
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, screenW, screenH);
+
+  if (!game.screenBgCache) {
+    const bg = document.createElement("canvas");
+    bg.width = Math.round(screenW * dpr);
+    bg.height = Math.round(screenH * dpr);
+    const bgCtx = bg.getContext("2d");
+    bgCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawScreenGradient(bgCtx, screenW, screenH);
+    game.screenBgCache = bg;
+  }
+  // Offscreen cache is sized in physical pixels — use drawImage's 9-arg form
+  // to blit it back to CSS size.
+  ctx.drawImage(
+    game.screenBgCache,
+    0, 0, game.screenBgCache.width, game.screenBgCache.height,
+    0, 0, screenW, screenH,
+  );
+
+  // ---- Stage 2: play-area coord system (430×932) ----
+  // All existing draw calls continue to operate in this coord space unchanged.
+  ctx.setTransform(
+    dpr * scale, 0,
+    0, dpr * scale,
+    offsetX * dpr, offsetY * dpr,
+  );
 
   if (game.gameState === "levelSelect") {
     drawLevelSelectScreen(game, ctx);
@@ -50,7 +80,9 @@ export function render(game) {
     return;
   }
 
-  // Screen shake on defeat — offset the entire canvas briefly
+  // Screen shake on defeat — offset the entire play area briefly. Still
+  // operates in the play-area coord system so it does not affect the
+  // screen-extended background.
   if (game.screenShake > 0) {
     const intensity = game.screenShake * 14;
     const ox = (Math.random() - 0.5) * intensity;
