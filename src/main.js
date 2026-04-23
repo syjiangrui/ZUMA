@@ -702,10 +702,28 @@ class ZumaGame {
   }
 
   resize() {
+    const screenW = Math.max(1, window.innerWidth);
+    const screenH = Math.max(1, window.innerHeight);
     const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
-    this.canvas.width = GAME_WIDTH * dpr;
-    this.canvas.height = GAME_HEIGHT * dpr;
-    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const scale = Math.min(screenW / GAME_WIDTH, screenH / GAME_HEIGHT);
+    const offsetX = (screenW - GAME_WIDTH * scale) / 2;
+    const offsetY = (screenH - GAME_HEIGHT * scale) / 2;
+
+    // Backing store = CSS size × dpr; CSS size = full screen.
+    this.canvas.width = Math.round(screenW * dpr);
+    this.canvas.height = Math.round(screenH * dpr);
+    this.canvas.style.width = screenW + "px";
+    this.canvas.style.height = screenH + "px";
+
+    this.viewport = { screenW, screenH, scale, offsetX, offsetY, dpr };
+
+    // Screen size changed, so the fullscreen gradient cache must rebuild.
+    // The play-area static scene cache is independent (still 430x932).
+    this.screenBgCache = null;
+
+    // Note: setTransform is intentionally NOT set here. render() will set
+    // the transform every frame because it alternates between two coord
+    // systems (screen pixels for background, play-area for everything else).
   }
 
   // Convert screen coordinates back into the fixed logical canvas space.
