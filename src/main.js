@@ -112,6 +112,26 @@ class ZumaGame {
     this.preloadBackgroundImages();
     this.goToLevelSelect();
     this.bindEvents();
+    // Screen viewport — physical pixel sizes + play-area scale/offset.
+    // Recomputed by resize(). Consumed by render() (to set canvas transforms)
+    // and updatePointer() (to unmap screen coords back to play-area coords).
+    //   screenW/screenH — window.innerWidth/innerHeight in CSS pixels
+    //   scale           — play-area → screen uniform scale (keeps 430:932)
+    //   offsetX/offsetY — play-area top-left offset on screen (for centering)
+    //   dpr             — device pixel ratio, clamped to [1, 2]
+    this.viewport = {
+      screenW: GAME_WIDTH,
+      screenH: GAME_HEIGHT,
+      scale: 1,
+      offsetX: 0,
+      offsetY: 0,
+      dpr: 1,
+    };
+    // Offscreen cache holding drawScreenGradient's output sized to the full
+    // physical canvas. Invalidated by resize() because its dimensions change
+    // with the viewport. staticSceneCache (play-area goal/track/background
+    // image/play-area decor) is unaffected — its dimensions remain 430x932.
+    this.screenBgCache = null;
     this.resize();
     requestAnimationFrame((time) => this.loop(time));
   }
