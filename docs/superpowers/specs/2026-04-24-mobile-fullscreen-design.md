@@ -50,9 +50,9 @@ Canvas 物理后备尺寸 = `screenW * dpr × screenH * dpr`；CSS 尺寸 = `scr
 当前 `staticSceneCache` 是一张 `430×932` 的离屏画布，包含背景渐变 + 可选的关卡背景图 + 轨道。全屏后它被拆成两层：
 
 - **新的"屏幕背景缓存"**（`screenBgCache`）：只画全屏的青绿→墨绿渐变，尺寸 = `screenW × screenH`（物理像素乘 dpr）。在 resize 时失效重建。每帧在步骤 2 中 `drawImage` 一次。
-- **保留的"玩法区静态缓存"**（继续复用现有 `staticSceneCache` 字段）：画 430×932 内的轨道 + 可选关卡背景图，尺寸不变、不受 resize 影响。在步骤 4 开始处 `drawImage` 一次。
+- **保留的"玩法区静态缓存"**（继续复用现有 `staticSceneCache` 字段）：画 430×932 内的 goal（终点门） + 可选关卡背景图 + 轨道，尺寸不变、不受 resize 影响。在步骤 4 开始处 `drawImage` 一次。其中原本放在里面的"渐变背景"要从这张缓存中拿掉（背景由新的 `screenBgCache` 全屏承担）。
 
-这样拆分的好处是 resize 时不用重建轨道/关卡图（昂贵），只重建一张全屏渐变（便宜）。
+这样拆分的好处是 resize 时不用重建 goal/轨道/关卡图（昂贵），只重建一张全屏渐变（便宜）。
 
 ## 输入映射改动
 
@@ -150,7 +150,7 @@ resize() {
 | 缓存 | resize 时是否失效 | 原因 |
 |---|---|---|
 | `screenBgCache`（新增） | ✅ 失效 | 屏幕尺寸变了 |
-| `staticSceneCache`（玩法区轨道+关卡图） | ❌ 保留 | 尺寸仍是 430×932 |
+| `staticSceneCache`（玩法区 goal+轨道+关卡图） | ❌ 保留 | 尺寸仍是 430×932 |
 | `cachedTrackPath` | ❌ 保留 | 玩法区内坐标 |
 | `ballBaseCache`、`ballOverCache`、`bandShadeCache` | ❌ 保留 | 球纹理与屏幕尺寸无关 |
 | `frogCacheBehind`、`frogCacheFront` | ❌ 保留 | 同上 |
