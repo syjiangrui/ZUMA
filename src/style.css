@@ -1,20 +1,5 @@
 :root {
   color-scheme: dark;
-  --bg-top: #1f4b4d;
-  --bg-mid: #133437;
-  --bg-bottom: #081617;
-  --panel: rgba(7, 20, 21, 0.74);
-  --panel-line: rgba(202, 231, 218, 0.12);
-  --text-main: #f7f2df;
-  --text-muted: #adc7bb;
-  --accent: #e8be6a;
-  --shadow: rgba(0, 0, 0, 0.42);
-  /* Combined vertical padding used by .app-shell. Matches the top+bottom
-     rules below so the canvas sizing formula can subtract it from 100dvh. */
-  --shell-pad-top: max(12px, env(safe-area-inset-top, 12px));
-  --shell-pad-bottom: max(12px, env(safe-area-inset-bottom, 12px));
-  --shell-pad-left: max(12px, env(safe-area-inset-left, 12px));
-  --shell-pad-right: max(12px, env(safe-area-inset-right, 12px));
 }
 
 * {
@@ -24,119 +9,30 @@
 html,
 body {
   margin: 0;
-  min-height: 100%;
-  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
-  color: var(--text-main);
-  background:
-    radial-gradient(circle at top, rgba(236, 208, 122, 0.18), transparent 28%),
-    linear-gradient(180deg, var(--bg-top) 0%, var(--bg-mid) 46%, var(--bg-bottom) 100%);
-}
-
-body {
+  padding: 0;
+  height: 100%;
+  background: #000;
   overflow: hidden;
+  overscroll-behavior: none;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  color: #f7f2df;
 }
 
 .app-shell {
-  min-height: 100vh;
-  min-height: 100dvh;
-  /* HUD is drawn on the canvas itself (the DOM .hud is inline-hidden), so the
-     shell is a single-cell flex column whose sole job is to pad for the safe
-     area and center the canvas. Using grid with grid-template-rows: auto 1fr
-     previously reserved a phantom row for the hidden HUD. */
-  display: flex;
-  flex-direction: column;
-  padding:
-    var(--shell-pad-top)
-    var(--shell-pad-right)
-    var(--shell-pad-bottom)
-    var(--shell-pad-left);
-}
-
-.hud {
-  width: min(100%, 460px);
-  margin: 0 auto;
-  padding: 14px 16px 12px;
-  border: 1px solid var(--panel-line);
-  border-radius: 20px;
-  background: var(--panel);
-  box-shadow: 0 18px 48px var(--shadow);
-  backdrop-filter: blur(18px);
-}
-
-.eyebrow,
-.status {
   margin: 0;
-  color: var(--text-muted);
-  font-size: 0.82rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.hud h1 {
-  margin: 6px 0 4px;
-  font-size: 1.65rem;
-  line-height: 1.1;
+  padding: 0;
+  width: 100vw;
+  height: 100dvh;
 }
 
 .game-frame {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  place-items: center;
+  width: 100%;
+  height: 100%;
 }
 
 #gameCanvas {
   display: block;
-  /* Game world is locked at 430x932 logical pixels (see CLAUDE.md). The CSS
-     below letterboxes that world into whatever the phone actually gives us.
-
-     Sizing rules, `min()` picks the most restrictive:
-       1. 100% of the app-shell's content width — cap on narrow phones.
-       2. Available viewport height minus the shell's vertical padding,
-          converted to width via the 430:932 aspect ratio — cap on tall phones.
-       3. 500px hard ceiling — prevents the canvas growing unreasonably large
-          on tablets / folded foldables. The world still renders at 430x932
-          internally; CSS just scales the backing store up. Touch targets grow
-          proportionally, which is the main quality-of-life win for small
-          screens too.
-
-     The old `(100dvh - 170px)` constant reserved space for a HUD that is now
-     display:none in index.html, so it wasted vertical room on every device.
-     Now the reservation tracks the actual safe-area padding, nothing more. */
-  width: min(
-    100%,
-    calc((100dvh - var(--shell-pad-top) - var(--shell-pad-bottom)) * 430 / 932),
-    500px
-  );
-  aspect-ratio: 430 / 932;
-  border-radius: 28px;
-  box-shadow:
-    0 24px 64px rgba(0, 0, 0, 0.42),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  background:
-    radial-gradient(circle at top, rgba(249, 227, 147, 0.16), transparent 24%),
-    linear-gradient(180deg, rgba(20, 68, 70, 0.96) 0%, rgba(10, 27, 28, 1) 100%);
+  width: 100vw;
+  height: 100dvh;
   touch-action: none;
-}
-
-/* On screens taller than ~19.5:9 (e.g. folded phones, tablets) the width
-   limit kicks in and vertical breathing room grows. That is intentional —
-   the canvas stays centered and legible rather than stretching to odd
-   proportions. Conversely, on stubbier 16:9 screens the height constraint
-   caps the canvas, leaving small top/bottom gutters — also intentional,
-   since that preserves the visible-head-removal rebase and the tuned chain
-   physics that all assume the 430:932 world. */
-
-@media (min-width: 700px) {
-  /* On larger viewports (tablets in portrait), add a little extra breathing
-     room above the canvas. This must still respect the iOS safe-area inset —
-     overriding with a bare `22px` would clip under the status bar on
-     notched iPads. */
-  :root {
-    --shell-pad-top: max(22px, env(safe-area-inset-top, 22px));
-  }
-
-  .hud h1 {
-    font-size: 1.9rem;
-  }
 }
