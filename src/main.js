@@ -726,13 +726,17 @@ class ZumaGame {
     // systems (screen pixels for background, play-area for everything else).
   }
 
-  // Convert screen coordinates back into the fixed logical canvas space.
+  // Convert screen coordinates back into the fixed play-area (430x932) space.
+  // Clicks outside the play area map to negative values or coords greater
+  // than GAME_WIDTH/HEIGHT, so existing HUD and level-button hit-tests
+  // naturally miss — no explicit filtering needed.
   updatePointer(event) {
     const rect = this.canvas.getBoundingClientRect();
-    const scaleX = GAME_WIDTH / rect.width;
-    const scaleY = GAME_HEIGHT / rect.height;
-    this.pointer.x = (event.clientX - rect.left) * scaleX;
-    this.pointer.y = (event.clientY - rect.top) * scaleY;
+    const { scale, offsetX, offsetY } = this.viewport;
+    const screenX = event.clientX - rect.left;
+    const screenY = event.clientY - rect.top;
+    this.pointer.x = (screenX - offsetX) / scale;
+    this.pointer.y = (screenY - offsetY) / scale;
   }
 
   isPointInsideRect(x, y, rect) {
