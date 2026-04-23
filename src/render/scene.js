@@ -5,11 +5,13 @@ import { drawBall } from './ball-textures.js';
 // Background layers, path track, goal, chain, projectile, aim guide,
 // shooter, particles, and static scene cache.
 
-// 全屏背景渐变 —— 不依赖玩法区坐标，只铺满 (0,0,w,h)。
-// drawBackground 里"基于 shooter 位置的装饰（石板、祭坛环、altar glow）"
-// 继续留在 drawBackground 里用于玩法区。
+// Fullscreen background gradient — independent of play-area coords,
+// just paints (0, 0, w, h). drawBackground's shooter-relative decor
+// (stone tiles, altar ring, altar glow) stays inside drawBackground
+// and continues to render only in the play area.
 export function drawScreenGradient(ctx, w, h) {
-  // 顶部青绿 canopy —— 原本覆盖 0~176 的玩法区高度，全屏时按同比例延伸。
+  // Top canopy gradient — originally covered 0..176 in the 430x932 play
+  // area. Scale that band proportionally to the actual canvas height.
   const canopyH = Math.round(h * 176 / GAME_HEIGHT);
   const canopy = ctx.createLinearGradient(0, 0, 0, canopyH);
   canopy.addColorStop(0, "#17383e");
@@ -18,7 +20,11 @@ export function drawScreenGradient(ctx, w, h) {
   ctx.fillStyle = canopy;
   ctx.fillRect(0, 0, w, canopyH);
 
-  // 底部石板 slab —— 原本从 HUD_HEIGHT 到 GAME_HEIGHT，全屏时从同比例位置到 h。
+  // Bottom slab gradient — originally from y=HUD_HEIGHT down to y=GAME_HEIGHT
+  // inside drawBackground. We anchor at 118 (drawBackground's gradient anchor)
+  // rather than HUD_HEIGHT (120) because this function paints the screen
+  // extension where there's no HUD; the 2px offset inside drawBackground
+  // is a play-area-only detail.
   const slabStart = Math.round(h * 118 / GAME_HEIGHT);
   const slab = ctx.createLinearGradient(0, slabStart, 0, h);
   slab.addColorStop(0, "#7f8990");
