@@ -6,14 +6,14 @@ import { drawBall } from './ball-textures.js';
 // shooter, particles, and static scene cache.
 
 export function drawBackground(game, ctx) {
-  const canopy = ctx.createLinearGradient(0, 0, 0, 176);
+  const canopy = ctx.createLinearGradient(0, 0, 0, 120);
   canopy.addColorStop(0, "#17383e");
   canopy.addColorStop(0.55, "#10272d");
   canopy.addColorStop(1, "#0a1519");
   ctx.fillStyle = canopy;
-  ctx.fillRect(0, 0, GAME_WIDTH, 176);
+  ctx.fillRect(0, 0, GAME_WIDTH, 120);
 
-  const slab = ctx.createLinearGradient(0, 118, 0, GAME_HEIGHT);
+  const slab = ctx.createLinearGradient(0, 60, 0, GAME_HEIGHT);
   slab.addColorStop(0, "#7f8990");
   slab.addColorStop(0.48, "#6e7880");
   slab.addColorStop(1, "#5b646d");
