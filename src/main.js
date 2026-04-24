@@ -710,6 +710,14 @@ class ZumaGame {
       this.pointer.active = false;
       this.canvas.releasePointerCapture?.(event.pointerId);
       if (this.isRoundPlaying()) {
+        // Snap shooter angle to the pointer so quick taps on touch devices
+        // fire toward the tap location instead of the old aim direction.
+        // On mouse / long-drag this is a no-op because updateAim() already
+        // converged during hover / drag frames.
+        this.shooter.angle = Math.atan2(
+          this.pointer.y - this.shooter.y,
+          this.pointer.x - this.shooter.x,
+        );
         this.fireProjectile();
       }
     });
@@ -720,7 +728,14 @@ class ZumaGame {
       this.canvas.releasePointerCapture?.(event.pointerId);
     });
 
-    this.canvas.addEventListener("pointerleave", () => {
+    this.canvas.addEventListener("pointerleave", (event) => {
+      // On touch devices, pointerleave fires immediately after pointerup
+      // (finger left the screen). Resetting the pointer would make the frog
+      // snap back to a default angle. Only reset for mouse where the cursor
+      // genuinely left the canvas area.
+      if (event.pointerType !== "mouse") {
+        return;
+      }
       if (!this.pointer.active && !this.uiPressAction) {
         this.pointer.x = this.shooter.x + 90;
         this.pointer.y = this.shooter.y - 120;
