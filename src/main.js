@@ -42,6 +42,10 @@ import {
 } from './render/index.js';
 import { LEVELS, getLevelById, initLevels } from './levels.js';
 import { loadProgress, saveProgress, recordLevelClear, updateHighScore, resetProgress } from './save.js';
+import { createLevelSelectDOM, showLevelSelect, hideLevelSelect } from './ui/level-select.js';
+import { createGameHudDOM, updateGameHud, showGameHud, hideGameHud, layoutGameHud } from './ui/game-hud.js';
+import { createEndCardDOM, showEndCard, hideEndCard } from './ui/end-card.js';
+import { createMatchFeedbackDOM, showMatchFeedback, hideMatchFeedback } from './ui/match-feedback.js';
 
 class ZumaGame {
   constructor(canvas) {
@@ -102,6 +106,7 @@ class ZumaGame {
     this.levelConfig = getLevelById(1);
     this.lastTime = 0;
 
+    this.fadeEl = document.getElementById('fadeOverlay');
     this.createTextures();
     // Background images are authored per-level (see path editor's "保存为本关
     // 背景"). We preload them eagerly so the first frame of a level can use the
@@ -110,6 +115,11 @@ class ZumaGame {
     // staticSceneCache so the next frame rebakes with the real artwork.
     this.backgroundImages = {};
     this.preloadBackgroundImages();
+    createLevelSelectDOM(this);
+    createGameHudDOM(this);
+    createEndCardDOM(this);
+    createMatchFeedbackDOM();
+    this.syncGameUIScale();
     this.goToLevelSelect();
     this.bindEvents();
     this.resize();
@@ -124,6 +134,10 @@ class ZumaGame {
 
   updateFade(dt) {
     if (!this.fadeOverlay) {
+      // Ensure DOM overlay is hidden when no fade is active.
+      if (this.fadeEl && this.fadeEl.style.opacity !== '0') {
+        this.fadeEl.style.opacity = 0;
+      }
       return;
     }
     const speed = 3.0; // ~0.33s fade
@@ -132,13 +146,21 @@ class ZumaGame {
       if (this.fadeOverlay.alpha >= 1) {
         const cb = this.fadeOverlay.callback;
         this.fadeOverlay = null;
+        if (this.fadeEl) this.fadeEl.style.opacity = 1;
         if (cb) cb();
+        return;
       }
     } else {
       this.fadeOverlay.alpha = Math.max(0, this.fadeOverlay.alpha - speed * dt);
       if (this.fadeOverlay.alpha <= 0) {
         this.fadeOverlay = null;
+        if (this.fadeEl) this.fadeEl.style.opacity = 0;
+        return;
       }
+    }
+    // Sync DOM opacity each frame.
+    if (this.fadeEl) {
+      this.fadeEl.style.opacity = this.fadeOverlay.alpha;
     }
   }
 
@@ -155,27 +177,7 @@ class ZumaGame {
     this.pathPoints = pathData.pathPoints;
     this.totalPathLength = pathData.totalPathLength;
     this.cachedTrackPath = pathData.cachedTrackPath;
-    this.pathYBounds = this.computePathYBounds();
-    // Recompute mobile layout because playShift depends on path bounds.
     if (this.canvas) this.resize();
-  }
-
-  // Compute the visible path's vertical bounds in game coords. Off-screen
-  // entry segments (x > GAME_WIDTH) are excluded so the spiral/serpentine
-  // "approach line" that sits in the right gutter doesn't drag minY up.
-  computePathYBounds() {
-    let minY = Infinity;
-    let maxY = -Infinity;
-    for (const pt of this.pathPoints) {
-      if (pt.x > GAME_WIDTH) continue;
-      if (pt.y < minY) minY = pt.y;
-      if (pt.y > maxY) maxY = pt.y;
-    }
-    if (!isFinite(minY) || !isFinite(maxY)) {
-      // Fallback to the play area itself — no path or path is fully off-screen.
-      return { minY: HUD_HEIGHT, maxY: GAME_HEIGHT - BOTTOM_BUTTON_HEIGHT };
-    }
-    return { minY, maxY };
   }
 
   getPointAtDistance(s) {
@@ -277,6 +279,10 @@ class ZumaGame {
 
   recordMatchEvent(info) {
     recordMatchEventFn(this, info);
+    // Trigger DOM match feedback popup (matchFeedback was just set by recordMatchEventFn)
+    if (this.matchFeedback) {
+      showMatchFeedback(this.matchFeedback);
+    }
   }
 
   updateHudState(dt) {
@@ -380,6 +386,10 @@ class ZumaGame {
 
     this.update(dt);
     this.render();
+    // Update DOM HUD after render (only touches DOM when values change)
+    if (this.gameState !== "levelSelect") {
+      updateGameHud(this);
+    }
 
     requestAnimationFrame((nextTime) => this.loop(nextTime));
   }
@@ -426,13 +436,8 @@ class ZumaGame {
   // the board we need near-360-degree rotation, so interpolation follows the
   // shortest angular path instead of clamping to an upper arc.
   updateAim(dt) {
-    // On mobile, the play area can be translated upward by playShift so the
-    // path midpoint centers in the visible play region.  Pointer is stored in
-    // screen-logical space (unshifted), so we add playShift when comparing to
-    // shooter.y which lives in play-area-logical (shifted) space.
-    const playShift = this.mobileLayout?.playShift || 0;
     const targetAngle = Math.atan2(
-      (this.pointer.y + playShift) - this.shooter.y,
+      this.pointer.y - this.shooter.y,
       this.pointer.x - this.shooter.x,
     );
     const delta = Math.atan2(
@@ -477,6 +482,7 @@ class ZumaGame {
         this.sfx.playLose();
         this.onLevelLose();
       }
+      showEndCard(this);
     }
   }
 
@@ -493,6 +499,9 @@ class ZumaGame {
   // id allocation. This is the single restart path used by the constructor, the
   // prototype tail escape, and future restart UI.
   resetRound() {
+    hideEndCard();
+    hideMatchFeedback();
+    showGameHud();
     // Apply level config (or fall back to defaults for backward compatibility).
     const cfg = this.levelConfig;
     if (cfg && cfg.shooterPos) {
@@ -520,17 +529,14 @@ class ZumaGame {
     this.pointer.active = false;
 
     // Rebuild path for this level (path shape/params may differ per level).
-    // This also refreshes mobileLayout.playShift so the pointer placement
     // below uses the up-to-date value.
     this.createPath();
     // Invalidate cached rendering that depends on the path.
-    this.hudPanelCache = null;
     this.staticSceneCache = null;
 
     this.pointer.x = this.shooter.x + 90;
     // Pointer is stored in screen-logical space, but shooter.y is in
-    // play-area-logical space — subtract playShift to keep them consistent.
-    this.pointer.y = this.shooter.y - 120 - (this.mobileLayout?.playShift || 0);
+    this.pointer.y = this.shooter.y - 120;
 
     this.createChain();
     this.currentPaletteIndex = this.getRandomPaletteIndex();
@@ -543,7 +549,12 @@ class ZumaGame {
     if (!cfg) {
       return;
     }
+    // Prevent double-tap during an active fade transition.
+    if (this.fadeOverlay) {
+      return;
+    }
     this.startFade("out", () => {
+      hideLevelSelect();
       this.currentLevel = levelId;
       this.levelConfig = cfg;
       this.resetRound();
@@ -554,6 +565,9 @@ class ZumaGame {
   // Enter the level-select screen. Clears gameplay state.
   goToLevelSelect() {
     this.gameState = "levelSelect"; // Prevent game logic from running during fade
+    hideGameHud();
+    hideEndCard();
+    hideMatchFeedback();
     this.startFade("out", () => {
       this.projectile = null;
       this.chain = [];
@@ -561,7 +575,7 @@ class ZumaGame {
       this.splitState = null;
       this.pendingMatchChecks = [];
       this.pointer.active = false;
-      this.hudPanelCache = null;
+      showLevelSelect(this);
       this.startFade("in", null);
     });
   }
@@ -709,7 +723,7 @@ class ZumaGame {
     this.canvas.addEventListener("pointerleave", () => {
       if (!this.pointer.active && !this.uiPressAction) {
         this.pointer.x = this.shooter.x + 90;
-        this.pointer.y = this.shooter.y - 120 - (this.mobileLayout?.playShift || 0);
+        this.pointer.y = this.shooter.y - 120;
       }
     });
 
@@ -763,34 +777,6 @@ class ZumaGame {
         ? Math.max(0, safeTop / scale - 14)
         : 0;
 
-      // Play-area vertical offset (applied only when the game overflows
-      // the viewport).  Goal: align the path's midpoint with the vertical
-      // centre of the region *below* the HUD.  Clamped so we never shift
-      // past the play-area buffers on either side — i.e. we crop from the
-      // empty HUD/bottom-button buffer zones, never into the HUD itself
-      // and never leave a gap below the bottom-button strip.
-      let playShift = 0;
-      if (cropBottom > 0 && this.pathYBounds) {
-        const pathMidY = (this.pathYBounds.minY + this.pathYBounds.maxY) / 2;
-        const hudHeight = HUD_HEIGHT + hudShift;
-        const visiblePlayH = vh / scale - hudHeight;
-        const desiredVisibleY = hudHeight + visiblePlayH / 2;
-        // We want pathMidY to render at desiredVisibleY in screen-logical
-        // space.  With a downward translate of -playShift, game-y p
-        // appears at screen-logical y = p - playShift.  Solve for
-        // playShift: pathMidY - playShift = desiredVisibleY.
-        playShift = pathMidY - desiredVisibleY;
-        // Clamp so the shift only consumes buffer zones.
-        // Upper clamp: don't shift so far up that the bottom-button strip
-        // lifts into the viewport (we still want it cropped off).  The
-        // maximum useful upward shift is cropBottom — beyond that the
-        // bottom buffer would become visible again.
-        playShift = Math.min(playShift, cropBottom);
-        // Lower clamp: never shift downward (would hide the play-area top
-        // behind the HUD).
-        playShift = Math.max(0, playShift);
-      }
-
       this.mobileLayout = {
         active: true,
         scale,
@@ -800,7 +786,6 @@ class ZumaGame {
         offsetX: 0,
         offsetY: 0,
         hudShift,
-        playShift,
         safeTop,
         safeBottom: this.getSafeAreaInset('bottom'),
         screenWidth: vw,
@@ -817,6 +802,34 @@ class ZumaGame {
       this.canvas.height = GAME_HEIGHT * dpr;
       this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       this.mobileLayout = null;
+    }
+    this.syncGameUIScale();
+    layoutGameHud(this);
+  }
+
+  // Keep the #gameUI DOM overlay aligned with and scaled to match the canvas.
+  syncGameUIScale() {
+    const uiEl = document.getElementById('gameUI');
+    if (!uiEl) return;
+    const rect = this.canvas.getBoundingClientRect();
+    if (this.mobileLayout) {
+      const { scale } = this.mobileLayout;
+      uiEl.style.top = `${rect.top}px`;
+      uiEl.style.left = `${rect.left}px`;
+      uiEl.style.transform = `scale(${scale})`;
+      uiEl.style.width = `${GAME_WIDTH}px`;
+      uiEl.style.height = `${Math.ceil(this.mobileLayout.screenHeight / scale)}px`;
+    } else {
+      // Desktop: canvas size is governed by CSS min() and aspect-ratio,
+      // so we read the actual rendered size and derive scale from that.
+      const scaleX = rect.width / GAME_WIDTH;
+      const scaleY = rect.height / GAME_HEIGHT;
+      const scale = Math.min(scaleX, scaleY);
+      uiEl.style.top = `${rect.top}px`;
+      uiEl.style.left = `${rect.left}px`;
+      uiEl.style.transform = `scale(${scale})`;
+      uiEl.style.width = `${GAME_WIDTH}px`;
+      uiEl.style.height = `${GAME_HEIGHT}px`;
     }
   }
 
@@ -937,46 +950,10 @@ class ZumaGame {
     return { x: GAME_WIDTH * 0.5 - 60, y: GAME_HEIGHT - 60, w: 120, h: 32 };
   }
 
-  // Button hit testing must run before gameplay input so tapping UI on phone
-  // does not accidentally start an aiming / firing gesture on the canvas.
+  // All UI buttons are now DOM elements — no canvas hit-testing needed.
+  // This method is kept as a no-op so bindEvents() doesn't break; the
+  // pointer event flow still calls it but it always returns null.
   getUiActionAt(x, y) {
-    if (this.gameState === "levelSelect") {
-      for (const level of LEVELS) {
-        const rect = this.getLevelButtonRect(level.id);
-        if (this.isPointInsideRect(x, y, rect)) {
-          return `selectLevel:${level.id}`;
-        }
-      }
-      if (this.isPointInsideRect(x, y, this.getResetProgressButtonRect())) {
-        return "resetProgress";
-      }
-      return null;
-    }
-
-    if (this.gameState !== "playing") {
-      const nextBtn = this.getEndCardNextButtonRect();
-      if (this.isPointInsideRect(x, y, nextBtn)) {
-        return "nextLevel";
-      }
-      const endCardRestart = this.getEndCardRestartButtonRect();
-      if (this.isPointInsideRect(x, y, endCardRestart)) {
-        return "restart";
-      }
-      const backBtn = this.getEndCardBackButtonRect();
-      if (this.isPointInsideRect(x, y, backBtn)) {
-        return "backToSelect";
-      }
-    }
-
-    if (this.isPointInsideRect(x, y, this.getHudBackButtonRect())) {
-      return "backToSelect";
-    }
-    if (this.isPointInsideRect(x, y, this.getHudRestartButtonRect())) {
-      return "restart";
-    }
-    if (this.isPointInsideRect(x, y, this.getHudSoundButtonRect())) {
-      return "toggleSound";
-    }
     return null;
   }
 

@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Repository**: https://github.com/syjiangrui/ZUMA.git
 
-**Current Status**: Phase 4 complete. ES module refactoring complete (10 modules). 8-level game with level selection, multiple path types, difficulty curve, local save/load, and fade transitions.
+**Current Status**: Phase 5 (UI architecture). Canvas→DOM UI migration complete. ES module refactoring complete (14 modules). 8-level game with level selection, multiple path types, difficulty curve, local save/load, and fade transitions. All UI (HUD, level select, end cards, match feedback) now rendered as DOM overlays; canvas only draws the game world.
 
 ## Development Commands
 
@@ -37,7 +37,7 @@ Since this is a single-page HTML game with no build system, development is strai
 
 ### High-Level System Design
 
-The game logic and rendering is organized as ES modules within a `ZumaGame` orchestrator class in `main.js`, plus 7 focused module files. The code is logically organized into 10 clear subsystems:
+The game logic and rendering is organized as ES modules within a `ZumaGame` orchestrator class in `main.js`, plus focused module files. The code is logically organized into 11 clear subsystems:
 
 1. **Configuration & Constants** (top of file)
    - Fixed logical resolution: `430 x 932` (portrait mobile)
@@ -86,19 +86,33 @@ The game logic and rendering is organized as ES modules within a `ZumaGame` orch
    - Scoring formula: base (100/ball) + large-group bonus + combo bonus + seam bonus
 
 8. **Rendering** (`render()`, `drawBall()`, `drawChain()`, `drawBackground()`, etc.)
-   - Layered draw order: background → (optional per-level background image) → track → goal → chain → projectile → aim guide → shooter → HUD → end card
-   - Per-level background image: when `level.background.src` is set, the image is painted over the procedural gradient (clipped to the play area) and the procedural `drawTrack()` is skipped — the image itself is expected to carry the track artwork. `drawGoal()` and `drawBackground()` (gradient fallback) always run.
+   - Canvas now only draws the game world — no UI elements
+   - Layered draw order: background → (optional per-level background image) → track → goal → chain → projectile → aim guide → shooter → particles → round-end effects (golden glow / red vignette)
+   - Per-level background image: when `level.background.src` is set, the image is painted over the procedural gradient and the procedural `drawTrack()` is skipped. Background/track clip covers the full canvas (0 to GAME_HEIGHT) with no reserved UI zones.
    - **Shooter is a classic Zuma stone frog** (`drawShooter()` → `drawFrogBody()`, `drawFrogJawBehind()`, `drawFrogJawFront()`, `drawFrogEyes()`, `drawFrogBellySocket()`). Entire frog rotates with aim angle; ground shadow stays flat. Current ball is held in the frog's mouth (upper jaw overlaps ball top); next ball sits in a belly socket. Frog geometry is pre-rendered to two offscreen layers (behind/front of ball) for performance.
    - Ball textures: procedurally generated with stone body + rolling equatorial band
    - Temple glyphs: scarab, eye, sun, mask, ankh (one per color palette)
    - No external image assets; all visuals are Canvas 2D primitives or generated textures
 
-9. **Input & UI** (`bindEvents()`, `getUiActionAt()`, `triggerUiAction()`)
-   - Pointer events (mouse + touch): `pointerdown`, `pointermove`, `pointerup`
-   - UI hit-tests first (restart button, sound toggle, next preview, end card) before game input
-   - No DOM buttons; all UI drawn on canvas
+9. **DOM UI Layer** (`src/ui/` — level-select, game-hud, end-card, match-feedback)
+   - All UI is rendered as DOM elements overlaying the canvas, not drawn on canvas
+   - `#gameUI` container (position:fixed, transform:scale) matches canvas coordinate system
+   - `#levelSelect` is a standalone fixed overlay for the level selection screen
+   - `#fadeOverlay` (position:fixed, z-index:50) replaces canvas-drawn fade transitions
+   - "选关" back button is position:fixed on body (bottom-left, independent of canvas scale)
+   - HUD uses a mini `<canvas>` element only for the next-ball preview (needs `drawBall()` textures)
+   - Match feedback uses CSS `@keyframes` animation for rise+fade effect
+   - End cards (win/lose/all-clear) are DOM panels with stone-button CSS styling
+   - All buttons use native DOM `<button>` elements with `:active` press states
 
-10. **Audio** (`SfxEngine` class, before `ZumaGame`)
+10. **Input** (`bindEvents()`)
+   - Pointer events (mouse + touch): `pointerdown`, `pointermove`, `pointerup`
+   - Canvas pointer events only handle game interaction (aiming + firing)
+   - All UI buttons are DOM click handlers — no canvas hit-testing (`getUiActionAt()` always returns null)
+   - Pointer coordinates are in screen-logical space: `(clientX - rect.left) / scale`
+   - No coordinate space bridging needed (playShift system removed)
+
+11. **Audio** (`SfxEngine` class, before `ZumaGame`)
     - All sounds procedurally synthesized via Web Audio API — no external audio files
     - `AudioContext` created lazily on first user gesture (mobile autoplay policy)
     - Effects: shoot (pop+puff), hit (noise burst), match (dual-tone chime, pitch rises with combo), win (ascending arpeggio), lose (low rumble)
@@ -265,38 +279,56 @@ When working on Phase 3 tasks:
 - **Do** improve ball rendering, add visual feedback, and refine hand-feel within current constraints
 - Split/merge hand-feel optimization is welcome but should not alter rule correctness
 
-## Phase 3 → Phase 4 Transition
+## Phase 4 → Phase 5 Transition
 
-**Phase 3** (completed) established visual polish, audio, particles, HUD skin, and performance caching.
+**Phase 4** (completed) established multi-level game loop, path system, difficulty curve, persistence.
 
-**Phase 4** (completed) is the multi-level game loop:
-- 8 levels with level selection UI (Mayan-themed stone buttons)
-- Pluggable path system with 7 generators: spiral, serpentine, rectangular, zigzag, openArc, quadratic Bezier, cubic Bezier
-- Quadratic/cubic Bezier levels are authored in `tools/path-editor/index.html` (Waypoint fit / 笔刷 freehand / ✒ pen tool) and persisted to `public/level-paths.json`
-- Per-level difficulty curve (ball count, speed, color count)
-- localStorage save/load for progress
-- Fade transitions between levels
-- All-clear celebration screen
-- Path system refactored into dispatcher + pluggable generators
+**Phase 5** (completed) is the Canvas→DOM UI migration:
+- All UI (HUD, level select, end cards, match feedback) migrated from Canvas to DOM overlays
+- `#fadeOverlay` DOM element replaces canvas-drawn fade transitions
+- `#gameUI` container with `transform:scale()` aligns DOM UI to canvas coordinate space
+- "选关" back button uses `position:fixed` (independent of canvas scaling)
+- `playShift` system completely removed (no more `pathYBounds`, `computePathYBounds`, `ctx.translate(0,-playShift)`)
+- Canvas clipping simplified: full canvas height, no HUD/button reserves
+- Ball/projectile rendering no longer clipped to play-area rect
+- Canvas `render()` only draws game world: background, track, balls, shooter, particles, round-end effects
+- 4 new UI modules in `src/ui/`: level-select, game-hud, end-card, match-feedback
+- `render/hud.js` and `render/screens.js` retained as legacy (not imported)
 
-When working on Phase 5 tasks:
-- **Do not** change the path generator interface (`{ sampled, renderPath }` → `finalizePath` → `pathPoints[]`)
-- **Do not** change the level config schema without updating all 8 level definitions
-- **Do not** silently downgrade cubic Bezier levels to quadratic; the editor enforces "one kind per level" and the pen tool keeps a snapshot so users can cancel the upgrade
-- **Do** add new path types by implementing generators and registering in `createPath()` switch
-- **Do** add special ball types by extending the ball data model, not the chain rules
+When working on future tasks:
+- **Do not** draw UI on canvas — use DOM elements in `src/ui/`
+- **Do** use the `stone-btn` / `level-card` CSS classes for new buttons
+- **Do** add new UI screens as DOM overlays, not canvas-drawn screens
+- **Do not** re-introduce `playShift` or canvas clipping for UI zones
 
 ## Completed Refactoring
 
-The modularization described below has been completed. The codebase is now split into 8 ES modules:
+The codebase is split into 14 ES modules across three layers:
 
-1. **Path system** (`path.js`) — Pure math; zero coupling to game state ✅
-2. **Scoring system** (`match.js`) — Clear boundaries; action contexts + match detection ✅
-3. **Chain/Split system** (`chain.js`) — Highest coupling, but cleanly extracted ✅
-4. **Projectile system** (`projectile.js`) — Flight, collision, insertion ✅
-5. **Rendering** (`src/render/`) — split into draw-utils / ball-textures / scene / hud / screens; `index.js` exports the public `render()` + `createTextures()` ✅
-6. **Audio** (`sfx.js`) — Self-contained SfxEngine class ✅
-7. **Config** (`config.js`) — Constants and palettes ✅
+**Game logic (7 modules)**:
+1. **Config** (`config.js`) — Constants and palettes
+2. **Path system** (`path.js`) — Pure math; zero coupling to game state
+3. **Scoring system** (`match.js`) — Action contexts + match detection
+4. **Chain/Split system** (`chain.js`) — Highest coupling, but cleanly extracted
+5. **Projectile system** (`projectile.js`) — Flight, collision, insertion
+6. **Audio** (`sfx.js`) — Self-contained SfxEngine class
+7. **Levels** (`levels.js`) + **Save** (`save.js`) — Level config + persistence
+
+**Canvas rendering (4 modules in `src/render/`)**:
+- `index.js` — Public API: `render()`, `createTextures()` (game world only, no UI)
+- `scene.js` — Background, track, goal, chain, projectile, shooter, particles
+- `ball-textures.js` — Frog body, glyphs, ball patterns, `drawBall()`, caches
+- `draw-utils.js` — Rounded rects, stone panel helper
+
+**DOM UI (4 modules in `src/ui/`)**:
+- `level-select.js` — Level selection screen
+- `game-hud.js` — In-game HUD (score, combo, buttons, next-ball mini canvas)
+- `end-card.js` — Win/lose/all-clear result cards
+- `match-feedback.js` — Floating score feedback popup
+
+**Legacy (retained but unused)**:
+- `render/hud.js` — Old canvas HUD drawing functions (no longer imported)
+- `render/screens.js` — Old canvas screens drawing functions (no longer imported)
 
 ## Debugging Tips
 
@@ -311,7 +343,7 @@ The modularization described below has been completed. The codebase is now split
 
 ```
 .
-├── index.html              # Main game entry (Vite root)
+├── index.html              # Main game entry (Vite root) — canvas + DOM UI containers
 ├── package.json            # npm deps (Vite)
 ├── vite.config.js          # Build config — multi-entry (main + path-editor)
 ├── README.md               # Dev/build instructions
@@ -329,14 +361,19 @@ The modularization described below has been completed. The codebase is now split
 │   ├── projectile.js       # Projectile flight, collision, insertion
 │   ├── levels.js           # 8-level configuration array + Bezier loader
 │   ├── save.js             # localStorage save/load for level progress
-│   ├── style.css           # Canvas sizing, page layout, color scheme
-│   └── render/             # Render layer (split from former 2198-line render.js)
+│   ├── style.css           # Canvas sizing, page layout, DOM UI styling
+│   ├── ui/                 # DOM UI layer (replaces canvas-drawn UI)
+│   │   ├── level-select.js     # Level selection screen (DOM)
+│   │   ├── game-hud.js         # In-game HUD bar + buttons (DOM + mini canvas for next-ball)
+│   │   ├── end-card.js         # Win/lose/all-clear result cards (DOM)
+│   │   └── match-feedback.js   # Floating score feedback popup (DOM + CSS animation)
+│   └── render/             # Canvas render layer — game world only
 │       ├── index.js            # Public API: render(), createTextures()
 │       ├── draw-utils.js       # Rounded rects, stone panel, seamless texture
 │       ├── ball-textures.js    # Frog body, glyphs, ball patterns, drawBall, caches
 │       ├── scene.js            # Background, track, goal, chain, projectile, shooter, particles
-│       ├── hud.js              # HUD overlay, next preview, sound/restart buttons, feedback
-│       └── screens.js          # Round-end card, all-clear, level select
+│       ├── hud.js              # (Legacy — functions retained but no longer called)
+│       └── screens.js          # (Legacy — functions retained but no longer called)
 ├── tools/
 │   └── path-editor/
 │       └── index.html      # Bezier path editor (Waypoint / Brush / Pen tools) + AI bg export (PNG/SVG)
@@ -354,11 +391,16 @@ src/config.js   src/sfx.js (no deps)
    ├── src/chain.js
    ├── src/match.js
    ├── src/projectile.js
-   ├── src/render/ (index.js → ball-textures/scene/hud/screens → draw-utils)
+   ├── src/render/ (index.js → ball-textures/scene → draw-utils)
    ├── src/levels.js
-   └── src/main.js ← imports from ALL modules (including levels.js, save.js)
+   ├── src/ui/level-select.js  (imports config, levels, save)
+   ├── src/ui/game-hud.js      (imports config, render/ball-textures)
+   ├── src/ui/end-card.js      (imports levels)
+   ├── src/ui/match-feedback.js (no deps)
+   └── src/main.js ← imports from ALL modules
 
 src/save.js has no deps (standalone localStorage utility)
+src/render/hud.js and src/render/screens.js are legacy (retained but not imported by render/index.js)
 ```
 
 No module imports from a sibling module (except config.js). All cross-subsystem calls flow through `game.*` method wrappers on ZumaGame, preventing circular dependencies.
@@ -376,11 +418,14 @@ No module imports from a sibling module (except config.js). All cross-subsystem 
 - Logical canvas: `430 x 932` (portrait, 9:19.6 ratio)
 - **Mobile full-screen mode**: On mobile (`pointer: coarse` AND `innerWidth < 700`), the phone-frame container is removed and the canvas fills the full viewport (`100vw × 100dvh`)
 - **Scaling**: Uniform `scale = vw / GAME_WIDTH` fills width with no side gutters. No distortion (non-uniform scaling is never used).
-- **Vertical overflow**: When `GAME_HEIGHT × scale > vh` (phone is shorter than 430:932), the game overflows at the bottom. `cropBottom = (GAME_HEIGHT × scale - vh) / scale` tracks the would-be hidden portion in game-coord pixels. HUD is always pinned to screen top (`cropTop = 0`); bottom buttons ("选关") shift up by `cropBottom + safeBottom/scale` to stay visible.
-- **Path-centred play shift**: To keep the authored track visually centred on short phones, the play-area layers (background + track + balls + shooter + particles) are rendered with an extra upward translate `-playShift` so the path's vertical midpoint aligns with the centre of the visible region below the HUD. HUD and end-cards are NOT shifted — they stay pinned to the top. `playShift` is clamped to `[0, cropBottom]` so the shift only ever consumes buffer zones. Computed in `resize()` from `pathYBounds`; recomputed whenever `createPath()` runs. To avoid exposing the `BOTTOM_BUTTON_HEIGHT` reserve strip (which is otherwise painted only with the procedural slab gradient) when `playShift > 0` pulls it into view, the static-scene cache extends its play-area clip rect down to `GAME_HEIGHT` on mobile (desktop still clips at `GAME_HEIGHT - BOTTOM_BUTTON_HEIGHT`). The authored background image naturally covers the extended region; where the image ends, the slab gradient continues seamlessly instead of a hard grey band.
-- **HUD notch avoidance**: `hudShift = max(0, safeTop/scale - 14)` pushes HUD interactive elements (buttons, preview ball) below the safe-area top. HUD panel background stays at y=0 so its color extends behind the notch. A canopy gradient fill covers the notch zone and extends across the full HUD strip when `playShift > 0` so the shifted play area can't leak through transparent HUD-panel regions.
-- **Safe-area insets**: Read via CSS `env(safe-area-inset-*)` and custom properties `--raw-sat/sab/sal/sar`. Top inset drives `hudShift`; bottom inset adjusts the back button position.
-- **Coordinate spaces**: `pointer` is stored in screen-logical space (unshifted, `(clientY - rect.top) / scale`), while `shooter.y` lives in play-area-logical space (game coords). `updateAim()` adds `playShift` to `pointer.y` to bridge the two. HUD hit-testing works directly because HUD rects and the pointer are both in screen-logical space.
+- **Vertical overflow**: When `GAME_HEIGHT × scale > vh` (phone is shorter than 430:932), the game overflows at the bottom. `cropBottom = (GAME_HEIGHT × scale - vh) / scale` tracks the would-be hidden portion in game-coord pixels.
+- **No playShift**: The old system that computed `pathYBounds` and applied `ctx.translate(0, -playShift)` to vertically centre the path has been removed. The canvas renders at (0,0) with no vertical offset. All coordinate spaces are unified — pointer and game world share the same space.
+- **DOM UI overlay**: `#gameUI` (position:fixed, transform-origin:top-left) is scaled via JS `syncGameUIScale()` to match the canvas bounding rect exactly. All HUD text, buttons, end cards, and match feedback are DOM elements inside this container.
+- **Back button**: The "选关" button is `position:fixed` on `<body>` (bottom-left corner), using CSS `env(safe-area-inset-*)` for notch/home-indicator avoidance. It is independent of the canvas coordinate system.
+- **Canvas clipping**: `createStaticSceneCache()` clips background/track from y=0 to y=GAME_HEIGHT — the full canvas with no reserved UI zones. Balls and projectiles are also rendered without clipping. The DOM HUD floats on top and naturally occludes whatever is underneath.
+- **HUD notch avoidance**: `hudShift = max(0, safeTop/scale - 14)` is still computed in `mobileLayout` and can be used by DOM HUD positioning if needed.
+- **Safe-area insets**: Read via CSS `env(safe-area-inset-*)` and custom properties `--raw-sat/sab/sal/sar`.
+- **Fade transitions**: `#fadeOverlay` (position:fixed, z-index:50) replaces all canvas-drawn fades. JS drives its `style.opacity` each frame from `game.fadeOverlay.alpha`.
 - **Bottom gap fill**: On tall phones where the game doesn't fill the viewport (`cropBottom === 0`), a slab gradient fills the gap below the game canvas.
 - Touch-action disabled on canvas to prevent browser pan/zoom
 - Portrait only (landscape shows a rotate-hint overlay)
@@ -389,20 +434,20 @@ No module imports from a sibling module (except config.js). All cross-subsystem 
 
 The rendering pipeline uses aggressive offscreen-canvas caching to avoid creating gradients and rebuilding paths every frame:
 
-- **`staticSceneCache`**: Procedural gradient background + optional per-level background image + goal pre-rendered once to a full-screen offscreen canvas. `render()` blits it with a single `drawImage`. Invalidated (set to `null`) when the level changes or when an async-loaded background image finishes loading. Track artwork is either drawn procedurally here (no background image) or assumed to be part of the background image (procedural `drawTrack()` is skipped in that case).
+- **`staticSceneCache`**: Procedural gradient background + optional per-level background image + track + goal pre-rendered once to a full-screen offscreen canvas. Clip covers full canvas (0 to GAME_HEIGHT, no reserved UI zones). `render()` blits it with a single `drawImage`. Invalidated (set to `null`) when the level changes or when an async-loaded background image finishes loading.
 - **`cachedTrackPath`** (`Path2D`): Track polyline (~616 points) built once; `strokePath()` uses `ctx.stroke(path2d)` instead of per-frame `lineTo` loops.
 - **`ballBaseCache[palette]`**: Per-palette body gradient pre-rendered to offscreen canvases. `drawBall()` uses `drawImage` for the base layer.
 - **`ballOverCache`**: Shared matte shade + worn bloom overlay (radius-dependent, palette-independent) pre-rendered once.
 - **`bandShadeCache`**: Top/bottom + side shading for rolling band texture, pre-rendered once.
 - **`frogCacheBehind` / `frogCacheFront`**: Stone frog split into two layers (body+lower jaw vs. upper jaw+eyes) so the held ball can be drawn between them at runtime.
-- **`hudPanelCache`**: HUD stone panel backgrounds with speckle texture, Mayan zigzag trim, and sun icon — rendered once on first draw. Text (score, combo, status) drawn live each frame with gold/grey color hierarchy and manual offset text shadows (no `shadowBlur` for performance).
-- **`traceRoundedRect()`**: Path-only rounded-rect helper for `clip()` / `stroke()` use sites. Added after a HUD regression where `fillRoundedRect()` was reused as a path builder and pre-filled the cached title slab with the default black fill.
 
-When modifying rendering code, always check whether a gradient or path can be moved into one of these caches. Only rolling band textures (rotation-dependent) and dynamic text/scores need per-frame rendering. If a rounded rectangle is only needed for `clip()` or `stroke()`, use `traceRoundedRect()` instead of `fillRoundedRect()`.
+HUD, end cards, match feedback, and level select are now DOM elements — no canvas caching needed for UI panels. The next-ball preview in the DOM HUD uses a tiny 36×36 `<canvas>` that calls `drawBall()` only when the palette index changes.
+
+When modifying rendering code, always check whether a gradient or path can be moved into one of these caches. Only rolling band textures (rotation-dependent) need per-frame rendering.
 
 ## Performance Considerations
 
-- **Per-frame gradient creates**: ~8 (down from ~190 before caching). Only conditional panels (match feedback, round card), round-end effects, and non-standard-radius preview balls still create live gradients. Zero `ctx.shadowBlur` calls — all text shadows use manual offset rendering (draw dark text at +1px, then draw light text at original position).
+- **Per-frame gradient creates**: ~3 (down from ~190 before caching). Only round-end effects (golden glow / red vignette) and non-standard-radius preview balls still create live gradients. All UI text is now DOM — no canvas text rendering overhead. Zero `ctx.shadowBlur` calls.
 - **Ball chain updates**: O(n) per frame (n = ball count, ~30 typical)
 - **Collision detection**: O(n) linear scan; adequate for current scale
 - **Path lookup**: O(log n) binary search on `pathPoints[]`

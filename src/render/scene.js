@@ -161,20 +161,9 @@ export function drawGoal(game, ctx) {
 }
 
 export function drawChain(game, ctx) {
-  // Clip to the play area so any portion of a ball that crosses into the
-  // HUD / bottom-button strips is masked out (HUD panel isn't full-width,
-  // so we can't rely on it to occlude). This also gives a smooth "ball
-  // rolling out from behind the UI" reveal when the author places the path
-  // start inside a UI strip.
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(
-    0,
-    HUD_HEIGHT,
-    GAME_WIDTH,
-    GAME_HEIGHT - HUD_HEIGHT - BOTTOM_BUTTON_HEIGHT,
-  );
-  ctx.clip();
+  // Now that HUD is a DOM overlay, we no longer need to clip balls to a
+  // play-area rect — the DOM HUD naturally floats on top of the canvas.
+  // Balls that enter the HUD zone simply render behind it.
 
   // Only draw balls that are currently on the playable portion of the path.
   for (const ball of game.chain) {
@@ -194,8 +183,6 @@ export function drawChain(game, ctx) {
       ball.pathAngle,
     );
   }
-
-  ctx.restore();
 }
 
 export function drawProjectile(game, ctx) {
@@ -203,17 +190,7 @@ export function drawProjectile(game, ctx) {
     return;
   }
 
-  // Mirror drawChain's play-area clip so a projectile passing through the
-  // HUD / bottom-button strips doesn't render on top of the UI.
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(
-    0,
-    HUD_HEIGHT,
-    GAME_WIDTH,
-    GAME_HEIGHT - HUD_HEIGHT - BOTTOM_BUTTON_HEIGHT,
-  );
-  ctx.clip();
+  // No play-area clip needed — DOM HUD covers the top zone naturally.
 
   drawBall(
     game,
@@ -226,8 +203,6 @@ export function drawProjectile(game, ctx) {
     0,
     0,
   );
-
-  ctx.restore();
 }
 
 export function drawAimGuide(game, ctx) {
@@ -313,17 +288,10 @@ export function createStaticSceneCache(game) {
   // fails to load, or doesn't fully cover the play area.
   drawBackground(game, cCtx);
 
-  // Play-area clip rect.  Top edge is always HUD_HEIGHT (don't paint under
-  // the HUD).  Bottom edge is usually GAME_HEIGHT - BOTTOM_BUTTON_HEIGHT so
-  // content doesn't spill under the desktop bottom-button strip.  On mobile,
-  // where playShift can pull the bottom buffer zone into the viewport, we
-  // extend the clip down to GAME_HEIGHT so the authored background / slab
-  // gradient covers that zone instead of showing the BOTTOM_BUTTON_HEIGHT
-  // reserve strip as a visible grey band.
-  const clipTop = HUD_HEIGHT;
-  const clipBottom = game.mobileLayout && game.mobileLayout.active
-    ? GAME_HEIGHT
-    : GAME_HEIGHT - BOTTOM_BUTTON_HEIGHT;
+  // Play-area clip rect.  Now that all UI is DOM overlays, no top/bottom
+  // reserves needed — clip the full canvas height.
+  const clipTop = 0;
+  const clipBottom = GAME_HEIGHT;
   const clipH = clipBottom - clipTop;
 
   // Layer 1 (optional): authored background artwork from the path editor.

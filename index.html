@@ -20,8 +20,15 @@
         <p class="status">阶段 1：轨道、炮台、纹理滚动球链</p>
       </section>
 
+      <section id="levelSelect" class="level-select"></section>
+
       <section class="game-frame">
         <canvas id="gameCanvas" aria-label="Zuma game canvas"></canvas>
+        <div id="gameUI" class="game-ui">
+          <div id="gameHud" class="game-hud"></div>
+          <div id="matchFeedback" class="match-feedback"></div>
+          <div id="endCardOverlay" class="end-card-overlay"></div>
+        </div>
       </section>
     </main>
 
@@ -31,6 +38,8 @@
         <p class="rotate-hint__text">请竖屏使用</p>
       </div>
     </div>
+
+    <div id="fadeOverlay" class="fade-overlay"></div>
 
     <script type="module" src="/src/main.js"></script>
   </body>

@@ -230,3 +230,707 @@ body {
     display: none;
   }
 }
+
+/* ---------------------------------------------------------------
+   Fade overlay — full-screen DOM element that replaces the old
+   canvas-drawn fade.  JS drives opacity via game.fadeEl.
+   --------------------------------------------------------------- */
+.fade-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgb(6, 10, 12);
+  opacity: 0;
+  pointer-events: none;
+  /* No CSS transition — JS controls opacity each frame via rAF. */
+}
+
+/* ---------------------------------------------------------------
+   Level-select screen — DOM replacement for the canvas-drawn
+   level selection. Sits above the canvas via z-index.
+   --------------------------------------------------------------- */
+.level-select {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  flex-direction: column;
+  align-items: center;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  /* Upper portion: dark teal gradient matching the canvas original */
+  background: linear-gradient(180deg, #17383e 0%, #10272d 30%, #0a1519 100%);
+}
+.level-select.is-visible {
+  display: flex;
+}
+
+/* --- Header (title sits on the dark-teal top) --- */
+.level-select__header {
+  width: 100%;
+  max-width: 430px;
+  padding: 44px 24px 0;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.level-select__title {
+  margin: 0;
+  font: 700 34px Georgia, serif;
+  color: #f0d57a;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.4);
+}
+
+.level-select__subtitle {
+  margin: 6px 0 0;
+  font: 14px Georgia, serif;
+  color: rgba(220, 210, 180, 0.5);
+}
+
+.level-select__divider {
+  width: 60%;
+  margin: 16px auto 0;
+  border: none;
+  border-top: 1.5px solid rgba(200, 170, 50, 0.3);
+}
+
+/* --- Body (stone-slab grey gradient) --- */
+.level-select__body {
+  width: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 0 40px;
+  background: linear-gradient(180deg, #7f8990 0%, #6e7880 48%, #5b646d 100%);
+}
+
+/* --- 2-column card grid --- */
+.level-select__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 164px);
+  gap: 18px 22px;
+  padding: 0 16px;
+}
+
+/* --- Level card — stone panel style --- */
+.level-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 164px;
+  padding: 12px 8px 10px;
+  background: linear-gradient(180deg, #7a8590 0%, #636e78 48%, #636e78 100%);
+  border: 1.5px solid rgba(180, 150, 80, 0.55);
+  border-radius: 18px;
+  box-shadow:
+    inset 0 1px 0 rgba(240, 225, 180, 0.12),
+    0 4px 0 rgba(8, 12, 16, 0.15);
+  cursor: pointer;
+  text-align: center;
+  color: inherit;
+  font-family: Georgia, serif;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.06s;
+}
+.level-card:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 0 rgba(240, 225, 180, 0.12);
+}
+
+.level-card--cleared {
+  border-color: rgba(180, 200, 80, 0.7);
+  background: linear-gradient(180deg, #6a7a68 0%, #4e6048 48%, #4e6048 100%);
+}
+
+.level-card__number {
+  font: 700 28px Georgia, serif;
+  color: #f0d57a;
+  line-height: 1.2;
+}
+
+.level-card__name {
+  font: 600 13px Georgia, serif;
+  color: rgba(240, 225, 185, 0.85);
+}
+
+.level-card__status {
+  font: 11px Georgia, serif;
+  color: rgba(220, 210, 180, 0.5);
+}
+.level-card__status--cleared {
+  color: rgba(180, 220, 100, 0.8);
+}
+
+.level-card__score {
+  font: 600 11px Georgia, serif;
+  color: #c8bfa8;
+  min-height: 1em;
+}
+
+.level-card__dots {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.level-card__dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+/* --- Footer (sound + reset) --- */
+.level-select__footer {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  margin-top: 28px;
+  padding: 0 16px;
+}
+
+/* --- Shared stone button --- */
+.stone-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, #94724d, #705139);
+  border: 1.5px solid rgba(242, 217, 151, 0.52);
+  border-radius: 18px;
+  color: #f4e7c3;
+  font: 600 15px Georgia, serif;
+  padding: 8px 24px;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 240, 210, 0.15),
+    0 2px 0 rgba(0, 0, 0, 0.2);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.06s;
+}
+.stone-btn:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 0 rgba(255, 240, 210, 0.15);
+}
+
+.stone-btn--small {
+  font-size: 11px;
+  padding: 6px 16px;
+  border-radius: 14px;
+}
+
+.stone-btn--danger {
+  border-color: rgba(160, 80, 60, 0.5);
+  background: linear-gradient(180deg, #5a636c, #485058);
+  color: rgba(220, 160, 140, 0.75);
+}
+
+/* Level-select sound button positioned in footer row */
+.level-select__sound-btn {
+  min-width: 72px;
+}
+
+/* --- Mobile safe-area adaptations for level-select --- */
+@media (max-width: 699px) and (pointer: coarse) {
+  .level-select__header {
+    padding-top: max(20px, env(safe-area-inset-top, 20px));
+  }
+
+  .level-select__body {
+    padding-bottom: max(40px, calc(env(safe-area-inset-bottom, 0px) + 20px));
+  }
+
+  /* On very narrow phones (<380px), shrink cards to fit */
+  .level-select__grid {
+    grid-template-columns: repeat(2, minmax(140px, 164px));
+    gap: 14px 16px;
+  }
+}
+
+/* ---------------------------------------------------------------
+   Game UI overlay — sits on top of the canvas, same size.
+   All child elements use the 430×932 game coordinate space;
+   JS sets a CSS transform on .game-ui to match the canvas scale.
+   --------------------------------------------------------------- */
+.game-ui {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 430px;
+  height: 932px;
+  pointer-events: none;       /* pass-through to canvas by default */
+  transform-origin: top left;
+  overflow: hidden;
+  z-index: 5;
+}
+.game-ui button,
+.game-ui [data-interactive] {
+  pointer-events: auto;       /* buttons intercept clicks */
+}
+
+/* Make game-frame the positioning parent for .game-ui */
+.game-frame { position: relative; }
+
+/* ---------------------------------------------------------------
+   Game HUD — top bar with score, combo, buttons
+   --------------------------------------------------------------- */
+.game-hud {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 430px;
+}
+.game-hud.is-visible { display: block; }
+
+/* Main stone panel background */
+.game-hud__panel {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  width: 232px;
+  height: 106px;
+  background: linear-gradient(180deg, #7a8590 0%, #636e78 48%, #636e78 100%);
+  border: 2px solid rgba(180, 150, 80, 0.55);
+  border-radius: 22px;
+  box-shadow:
+    inset 0 1px 0 rgba(240, 225, 180, 0.12),
+    0 4px 0 rgba(8, 12, 16, 0.15);
+  /* Mayan zigzag trim at bottom via pseudo-element */
+  overflow: hidden;
+}
+.game-hud__panel::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 4px;
+  right: 4px;
+  height: 8px;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0px, transparent 3px,
+    rgba(200, 170, 50, 0.22) 3px, rgba(200, 170, 50, 0.22) 7px,
+    transparent 7px, transparent 10px
+  );
+  mask-image: linear-gradient(to bottom, transparent, black);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black);
+}
+
+/* Text content inside the panel */
+.game-hud__content {
+  position: relative;
+  padding: 6px 14px 8px;
+}
+
+.game-hud__title {
+  margin: 0;
+  font: 700 22px Georgia, serif;
+  color: #f0d57a;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.4);
+  line-height: 1.3;
+}
+
+.game-hud__subtitle {
+  margin: 0;
+  font: 11px Georgia, serif;
+  color: rgba(220, 210, 180, 0.5);
+}
+
+/* Status + chain row */
+.game-hud__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.game-hud__sub-panel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  background: linear-gradient(180deg, #6e7a84, #5a6570);
+  border: 1px solid rgba(160, 130, 70, 0.5);
+  border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(240, 225, 180, 0.08);
+  font: 600 12px Georgia, serif;
+  color: #c8bfa8;
+}
+
+.game-hud__dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #6cc870;
+  flex-shrink: 0;
+}
+.game-hud__dot--win { background: #f0d57a; }
+.game-hud__dot--lose { background: #d45040; }
+
+.game-hud__value {
+  color: #f5d872;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+/* Score + combo row */
+.game-hud__score-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.game-hud__label {
+  font: 600 12px Georgia, serif;
+  color: #c8bfa8;
+}
+
+.game-hud__score-val {
+  font: 700 14px Georgia, serif;
+  color: #f5d872;
+}
+
+.game-hud__combo {
+  font: 600 12px Georgia, serif;
+  color: #c8bfa8;
+  margin-left: auto;
+}
+
+/* Right-side buttons area */
+.game-hud__buttons {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+/* Next-ball preview container */
+.game-hud__next {
+  width: 44px;
+  height: 44px;
+  background: linear-gradient(180deg, #727e88, #5e6a74);
+  border: 1.5px solid rgba(200, 170, 50, 0.6);
+  border-radius: 14px;
+  box-shadow:
+    inset 0 1px 0 rgba(247, 228, 187, 0.2),
+    0 2px 0 rgba(0, 0, 0, 0.16);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.game-hud__next canvas {
+  display: block;
+}
+
+/* HUD stone button (small) */
+.game-hud__btn {
+  min-width: 36px;
+  height: 38px;
+  padding: 0 12px;
+  background: linear-gradient(180deg, #94724d, #705139);
+  border: 1.5px solid rgba(242, 217, 151, 0.52);
+  border-radius: 14px;
+  color: #f4e7c3;
+  font: 600 13px Georgia, serif;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 240, 210, 0.15),
+    0 2px 0 rgba(0, 0, 0, 0.2);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.06s;
+  pointer-events: auto;
+}
+.game-hud__btn:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 0 rgba(255, 240, 210, 0.15);
+}
+
+/* Sound button icon sizing */
+.game-hud__btn--sound {
+  font-size: 16px;
+  padding: 0 8px;
+}
+
+/* Back button pinned to bottom-left of the viewport */
+.game-hud__back {
+  position: fixed;
+  bottom: max(18px, env(safe-area-inset-bottom, 0px));
+  left: max(16px, env(safe-area-inset-left, 0px));
+  z-index: 6;
+  pointer-events: auto;
+}
+
+/* ---------------------------------------------------------------
+   Match feedback popup — floats above the HUD briefly
+   --------------------------------------------------------------- */
+.match-feedback {
+  display: none;
+  position: absolute;
+  top: 114px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 192px;
+  padding: 10px 16px;
+  background: linear-gradient(180deg, #727c86, #5c6670);
+  border: 1.5px solid rgba(94, 70, 40, 0.9);
+  border-radius: 18px;
+  box-shadow:
+    inset 0 1px 0 rgba(246, 225, 171, 0.2),
+    0 4px 0 rgba(0, 0, 0, 0.15);
+  text-align: center;
+  pointer-events: none;
+  z-index: 2;
+}
+.match-feedback.is-visible {
+  display: block;
+  animation: match-feedback-rise 1.2s ease-out forwards;
+}
+.match-feedback.is-combo-high {
+  border-color: rgba(220, 185, 60, 0.8);
+}
+
+.match-feedback__score {
+  font: 700 22px Georgia, serif;
+  color: #f1d680;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.35);
+}
+
+.match-feedback__detail {
+  font: 13px Georgia, serif;
+  color: rgba(244, 229, 189, 0.88);
+  margin-top: 2px;
+}
+
+@keyframes match-feedback-rise {
+  0% { opacity: 1; transform: translateX(-50%) translateY(0); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-18px); }
+}
+
+/* ---------------------------------------------------------------
+   End-card overlay (win / lose / all-clear)
+   --------------------------------------------------------------- */
+.end-card-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+.end-card-overlay.is-visible {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  /* Semi-transparent dim background */
+  background: rgba(6, 10, 12, 0.52);
+  pointer-events: auto;
+}
+
+/* Main result card panel */
+.end-card {
+  width: 320px;
+  margin-top: calc(932px * 0.18);
+  padding: 24px 20px 20px;
+  background: linear-gradient(180deg, #747f88 0%, #5f6a74 48%, #5f6a74 100%);
+  border: 2px solid rgba(220, 185, 60, 0.9);
+  border-radius: 26px;
+  box-shadow:
+    inset 0 1px 0 rgba(244, 220, 137, 0.3),
+    0 6px 0 rgba(8, 10, 12, 0.25);
+  text-align: center;
+  color: var(--text-main);
+  font-family: Georgia, serif;
+}
+.end-card--lose {
+  border-color: rgba(160, 70, 50, 0.85);
+  box-shadow:
+    inset 0 1px 0 rgba(231, 167, 143, 0.25),
+    0 6px 0 rgba(8, 10, 12, 0.25);
+}
+
+/* Altar badge ring */
+.end-card__badge {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 8px;
+  border: 2px solid rgba(220, 190, 80, 0.45);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+.end-card--lose .end-card__badge {
+  border-color: rgba(180, 80, 60, 0.4);
+}
+
+.end-card__title {
+  margin: 0;
+  font: 700 32px Georgia, serif;
+  color: #f5d872;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.45);
+}
+.end-card--lose .end-card__title { color: #e0b8a0; }
+
+.end-card__subtitle {
+  margin: 4px 0 0;
+  font: 13px Georgia, serif;
+  color: rgba(244, 232, 202, 0.65);
+}
+
+.end-card__score-label {
+  margin: 16px 0 0;
+  font: 600 14px Georgia, serif;
+  color: #c8bfa8;
+}
+
+.end-card__score-value {
+  margin: 4px 0 0;
+  font: 700 28px Georgia, serif;
+  color: #f5d872;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.3);
+}
+
+/* Combo sub-badge */
+.end-card__combo {
+  display: inline-block;
+  margin: 8px auto 0;
+  padding: 4px 16px;
+  background: linear-gradient(180deg, #666f78, #545e68);
+  border: 1px solid rgba(80, 60, 35, 0.6);
+  border-radius: 10px;
+  font: 600 11px Georgia, serif;
+  color: rgba(240, 225, 185, 0.75);
+}
+
+/* End-card button row */
+.end-card__actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+.end-card__btn {
+  min-width: 120px;
+  padding: 10px 20px;
+  background: linear-gradient(180deg, #94724d, #705139);
+  border: 1.5px solid rgba(242, 217, 151, 0.52);
+  border-radius: 18px;
+  color: #f4e7c3;
+  font: 600 15px Georgia, serif;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 240, 210, 0.15),
+    0 2px 0 rgba(0, 0, 0, 0.2);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.06s;
+}
+.end-card__btn:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 0 rgba(255, 240, 210, 0.15);
+}
+.end-card__btn--primary {
+  min-width: 140px;
+}
+.end-card__btn--back {
+  background: linear-gradient(180deg, #5a636c, #485058);
+  border-color: rgba(120, 100, 70, 0.4);
+  font-size: 13px;
+  min-width: 100px;
+}
+
+/* Mayan zigzag at card bottom */
+.end-card::after {
+  content: '';
+  display: block;
+  height: 6px;
+  margin-top: 16px;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0px, transparent 4px,
+    rgba(200, 170, 50, 0.18) 4px, rgba(200, 170, 50, 0.18) 8px,
+    transparent 8px, transparent 12px
+  );
+  border-radius: 0 0 20px 20px;
+}
+.end-card--lose::after {
+  background: repeating-linear-gradient(
+    90deg,
+    transparent 0px, transparent 4px,
+    rgba(160, 70, 50, 0.15) 4px, rgba(160, 70, 50, 0.15) 8px,
+    transparent 8px, transparent 12px
+  );
+}
+
+/* ---- All-clear card variant ---- */
+.all-clear-card {
+  display: none;
+  width: 340px;
+  margin-top: calc(932px * 0.08);
+  padding: 24px 20px 20px;
+  background: linear-gradient(180deg, #747f88 0%, #5f6a74 48%, #5f6a74 100%);
+  border: 2px solid rgba(220, 185, 60, 0.9);
+  border-radius: 28px;
+  box-shadow:
+    inset 0 1px 0 rgba(244, 220, 137, 0.3),
+    0 6px 0 rgba(8, 10, 12, 0.25);
+  text-align: center;
+  font-family: Georgia, serif;
+  color: var(--text-main);
+}
+.all-clear-card.is-visible { display: block; }
+
+.all-clear-card__title {
+  margin: 12px 0 0;
+  font: 700 34px Georgia, serif;
+  color: #f5d872;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.45);
+}
+
+.all-clear-card__subtitle {
+  margin: 4px 0 12px;
+  font: 14px Georgia, serif;
+  color: rgba(244, 232, 202, 0.65);
+}
+
+.all-clear-card__scores {
+  text-align: left;
+  padding: 0 16px;
+}
+
+.all-clear-card__level-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  font: 600 12px Georgia, serif;
+}
+.all-clear-card__level-row span:first-child { color: #c8bfa8; }
+.all-clear-card__level-row span:last-child { color: #f5d872; }
+
+.all-clear-card__total {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(200, 170, 50, 0.3);
+}
+
+.all-clear-card__total-label {
+  font: 600 14px Georgia, serif;
+  color: #c8bfa8;
+}
+
+.all-clear-card__total-value {
+  margin: 4px 0 0;
+  font: 700 24px Georgia, serif;
+  color: #f5d872;
+}
+
+}

@@ -9,9 +9,10 @@
 
 当前实现特点：
 
-- 使用 ES 模块组织于 `src/` 目录，`main.js` 中的 `ZumaGame` 类作为编排器。渲染层进一步拆分为 `src/render/` 子模块（`draw-utils`, `ball-textures`, `scene`, `hud`, `screens`, `index`）
+- 使用 ES 模块组织于 `src/` 目录，`ZumaGame` 类作为编排器。渲染层在 `src/render/` 子模块（`draw-utils`, `ball-textures`, `scene`, `index`）只负责游戏画面。UI 层在 `src/ui/` 子模块（`level-select`, `game-hud`, `end-card`, `match-feedback`）使用 DOM 覆盖层
 - 构建工具：Vite（多入口：主游戏 + `tools/path-editor/`）
-- 使用 `Canvas 2D` 绘制轨道、球体、HUD 和场景
+- 游戏画面使用 `Canvas 2D` 绘制轨道、球体、射手、粒子
+- 所有 UI（HUD、关卡选择、结算卡、消除反馈）使用 DOM 元素覆盖在 Canvas 上方
 - 使用固定逻辑分辨率 `430 x 932`
 - 支持桌面和手机触控输入
 - 核心玩法已经具备：发射、插入、三消、断链、重新并链、计分、连击、基础胜负
@@ -25,7 +26,8 @@
 - [src/chain.js](src/chain.js) — 球链 + 断链/并链
 - [src/match.js](src/match.js) — 匹配检测与计分
 - [src/projectile.js](src/projectile.js) — 弹射体系统
-- [src/render/](src/render/) — 渲染与纹理生成（6 文件：index / draw-utils / ball-textures / scene / hud / screens）
+- [src/render/](src/render/) — Canvas 渲染层：游戏画面（4 文件：index / draw-utils / ball-textures / scene）
+- [src/ui/](src/ui/) — DOM UI 层（4 文件：level-select / game-hud / end-card / match-feedback）
 - [src/levels.js](src/levels.js) — 8 关卡配置（路径类型、颜色数、链速等）
 - [src/save.js](src/save.js) — localStorage 持久化（关卡进度）
 - [ZUMA_PLAN.md](ZUMA_PLAN.md)
@@ -313,21 +315,32 @@ levels.js (LEVELS[i].pathType, pathParams)
 - `Space` 发射
 - `R` 重开
 
-### 7.2 为什么 UI 命中要先于玩法输入
+### 7.2 UI 架构
 
-`getUiActionAt()` 会先判断指针是否命中了 HUD 按钮或结束面板按钮。  
-这是为了避免手机端点击“重开”时，被同时当成一次瞄准/发射。
+所有 UI 已从 Canvas 迁移到 DOM 覆盖层：
+
+- `#levelSelect`（position:fixed, z-index:10）— 关卡选择屏
+- `#gameUI`（position:fixed, transform:scale）— 游戏内 UI 容器，与 canvas 坐标系对齐
+  - `.game-hud` — HUD 栏（分数/连击/按钮/下一球 mini canvas）
+  - `.match-feedback` — 消除反馈弹窗（CSS 动画）
+  - `.end-card-overlay` — 结算卡（win/lose/all-clear）
+- `#fadeOverlay`（position:fixed, z-index:50）— 淡入淡出过渡遮罩
+- `.game-hud__back`（position:fixed on body）— “选关”按钮，独立于 canvas 缩放
+
+`getUiActionAt()` 始终返回 null — 所有按钮使用原生 DOM click 事件。Canvas 指针事件只处理瞄准和射击。
 
 ### 7.3 UI 布局
 
 当前可交互 UI 包括：
 
-- HUD 重开按钮
-- HUD 下一球预览
-- 结束卡片
-- 结束卡片中的重开按钮
+- HUD 重开按钮（DOM `<button>`）
+- HUD 声音切换按钮（DOM `<button>`）
+- HUD 下一球预览（DOM 内嵌 36×36 mini canvas）
+- 选关按钮（position:fixed DOM `<button>`）
+- 结算卡按钮（DOM `<button>`）
+- 关卡选择屏按钮（DOM `<button>`）
 
-这些都直接绘制在 canvas 内部，而不是 HTML DOM 按钮。
+所有按钮使用 `stone-btn` CSS 类实现石板风格，`:active` 提供按压反馈。
 
 ## 8. 生命周期与回合状态
 
@@ -667,27 +680,20 @@ frontPullTarget = min(maxPull, closedDistance * ratio)
 
 ### 13.1 render() 顺序
 
-当前绘制顺序：
+Canvas 现在只绘制游戏画面，不绘制任何 UI。当前绘制顺序：
 
 1. 清空画布
 2. 屏幕震动偏移（仅失败后短暂生效，`screenShake > 0` 时 `ctx.translate` 随机偏移）
-3. 静态场景缓存（背景 + 轨道 + 终点，一次性预渲染到离屏 canvas，`drawImage` 直接贴）
-4. 球链
+3. 静态场景缓存（背景 + 轨道 + 终点，一次性预渲染到离屏 canvas，`drawImage` 直接贴；clip 范围为 0 到 GAME_HEIGHT，无 UI 保留区）
+4. 球链（无 clip 限制，可渲染到 canvas 任意位置）
 5. 粒子层（消除碎片 + 胜利庆祝粒子）
-6. 发射球
+6. 发射球（无 clip 限制）
 7. 瞄准辅助
 8. 石蛙发射器（预缓存两层离屏 canvas + 实时画嘴中球和腹部球）
-9. 顶部 HUD（面板底图预缓存，文字实时绘制）
-10. 匹配反馈
-11. 恢复震动偏移
-12. 回合结束特效（胜利金色光晕 / 失败红色暗角）
-13. 结束卡片
+9. 恢复震动偏移
+10. 回合结束特效（胜利金色光晕 / 失败红色暗角）
 
-这个顺序保证：
-
-- 轨道总是在球链下方
-- HUD 总在场景最上层
-- 结束卡片能盖住游戏画面
+所有 UI 元素（HUD、匹配反馈、结算卡、关卡选择）由 DOM 覆盖层处理，不在 `render()` 中绘制。
 
 ### 13.2 球体绘制
 
@@ -726,9 +732,9 @@ rotation = s / radius
 
 1. 所有逻辑基于固定分辨率（430 × 932）
 2. 手机端全屏：移除 PC 端的圆角手机容器，canvas 填满整个视口（`100vw × 100dvh`）
-3. 所有按钮都在 canvas 内部统一坐标系中绘制和命中
+3. 所有 UI 使用 DOM 覆盖层（`#gameUI` + `#levelSelect` + `#fadeOverlay`），不在 canvas 内绘制
 4. 输入层统一用 pointer events
-5. UI 点击命中优先于玩法输入
+5. Canvas 只绘制游戏画面（背景/轨道/球链/射手/粒子/特效）
 
 ### 手机端全屏适配细节
 
@@ -743,59 +749,34 @@ rotation = s / radius
 **垂直溢出处理**：
 - 当 `GAME_HEIGHT × scale > vh`（手机屏幕比 430:932 更矮），游戏底部会超出视口
 - `cropBottom = (gameScreenH - vh) / scale`：在不做任何额外偏移时会被截掉的游戏坐标像素数
-- HUD 始终固定在屏幕顶端（`cropTop = 0`）
-- 底部"选关"按钮上移 `cropBottom + safeBottom/scale`，保持在可见区域内
-- 裁剪来自游戏区域的上下余量（HUD 下的缓冲空间 + 底部按钮条），永不裁进 HUD 本身
+- 不做任何垂直偏移——canvas 从 (0,0) 开始渲染，底部自然溢出
 
-**路径居中（playShift）**：
-- 只靠"砍底"会让路径整体偏上，视觉上不居中。为此在 HUD 下方的可见游戏区内把路径的几何中心对齐到该区域的垂直中心
-- 只处理**游戏区图层**（背景图、轨道、珠链、射手、粒子）：在渲染时整体 `ctx.translate(0, -playShift)`
-- HUD / 结算卡片 / 关卡选择界面**不**跟随偏移，HUD 始终钉在屏幕顶端
-- 计算方式（见 `resize()`）：
-  - `pathMidY = (pathYBounds.minY + pathYBounds.maxY) / 2`（游戏坐标系，忽略 `x > GAME_WIDTH` 的入口曲线）
-  - `hudHeight = HUD_HEIGHT + hudShift`
-  - `visiblePlayH = vh / scale − hudHeight`
-  - `desiredVisibleY = hudHeight + visiblePlayH / 2`（路径中心希望落在的屏幕逻辑 y）
-  - 由 `pathMidY − playShift = desiredVisibleY` 解得 `playShift = pathMidY − desiredVisibleY`
-  - 钳位：`playShift ∈ [0, cropBottom]`
-    - 下限 0：绝不向下偏移（否则游戏区顶会被 HUD 盖住或露出黑边）
-    - 上限 `cropBottom`：再多就会让底部按钮条重新探出视口底部，反而出现空白
-- `playShift` 由 `resize()` 计算，并在 `createPath()` 末尾重新调用 `resize()`，保证换关时与新路径同步
+**Canvas 裁剪**：
+- `createStaticSceneCache()` 的 clip 范围为 `(0, 0)` 到 `(GAME_WIDTH, GAME_HEIGHT)` — 全画布，无 UI 保留区
+- 球链和弹射球渲染无 clip 限制
+- DOM HUD 浮在 canvas 上方自然遮挡游戏画面
 
-**静态场景裁剪框（移动端放开底部）**：
-- `createStaticSceneCache()` 在画授权背景图和轨道/终点时都用一个 clip 矩形，避免画到 HUD / 底部按钮条
-- 原来 clip 底边是 `GAME_HEIGHT − BOTTOM_BUTTON_HEIGHT`，也就是始终为底部按钮条保留一条"不绘背景"的区域
-- `playShift > 0` 时这条保留区会被上推进入视口，表现为一条突兀的 slab 灰色横带
-- 解决办法：移动端（`mobileLayout.active`）下把 clip 底边放到 `GAME_HEIGHT`，让授权背景图和 procedural slab 一起铺到画布最下。素材本身不需要强制画到 932——画到哪儿结束，下面就自然过渡到 slab 渐变，不会再出现按钮条形状的硬边灰条
-- 桌面端保持原样（底部按钮条仍然保留），不受影响
+**DOM UI 覆盖层对齐**：
+- `#gameUI`（position:fixed）通过 `syncGameUIScale()` 读取 `canvas.getBoundingClientRect()` 并设置 `top/left/transform:scale()`，与 canvas 精确对齐
+- `#levelSelect`（position:fixed, inset:0）独立于 canvas，全屏覆盖
+- `.game-hud__back`（"选关"按钮）是 position:fixed on body，使用 CSS `env(safe-area-inset-*)` 适配底部安全区
+- `#fadeOverlay`（position:fixed, z-index:50）覆盖一切，JS 驱动 opacity
 
-**坐标空间与指针映射**：
-- `pointer` 存放**屏幕逻辑坐标**（未做 `playShift` 修正）：
-  - `pointer.x = (clientX − rect.left) / scale`
-  - `pointer.y = (clientY − rect.top) / scale`
-- `shooter.y` 是**游戏逻辑坐标**（和路径、珠链同一空间，带 `playShift` 偏移）
-- `updateAim()` 内部把两套空间对齐：`target.y = pointer.y + playShift`，再与 `shooter.y` 比较
-- HUD 按钮矩形也在屏幕逻辑空间，和 `pointer` 直接比，不需要加 `playShift`
-- `resetRound()` / `pointerleave` 里把指针重置到"射手右上方"时，要反向减去 `playShift` 才能落在屏幕逻辑空间
+**坐标空间**：
+- `playShift` 系统已完全移除
+- `pointer` 存放屏幕逻辑坐标：`(clientX − rect.left) / scale`
+- `shooter.y` 和 `pointer.y` 在同一坐标空间，`updateAim()` 直接比较
+- 无需坐标空间桥接
 
 **刘海/灵动岛避让**：
 - 安全区通过 CSS `env(safe-area-inset-*)` 和自定义属性 `--raw-sat/sab/sal/sar` 获取
-- `hudShift = max(0, safeTop / scale - 14)`：将 HUD 交互元素（按钮、预览球）推到刘海下方
-- HUD 面板背景保持 y=0，其颜色自然延伸到刘海后面
-- 当 `hudShift > 0` 或 `playShift > 0` 时，整条 HUD 高度（`HUD_HEIGHT + hudShift`）填满 canopy 渐变（`#17383e → #10272d`），避免偏移后的游戏区从 HUD 面板透明区（x&lt;16 或 x&gt;248）漏出
+- `hudShift = max(0, safeTop / scale - 14)`：仍在 mobileLayout 中计算，可供 DOM HUD 定位使用
 
 **底部安全区**：
 - 矮屏手机（`cropBottom > 0`）：游戏背景自然延伸到 home indicator 后面，不额外填充
 - 高屏手机（`cropBottom = 0`）：底部间隙用 slab 渐变（`#5b646d → #3a4248`）填充
 
 **横屏处理**：显示旋转提示遮罩，不提供横屏支持。
-
-这套方案的优点是：
-
-- 不需要写一套 DOM HUD 再做坐标同步
-- 手机和桌面行为更一致
-- 全屏沉浸体验，无 PC 端容器装饰
-- 游戏画面无变形，通过裁剪余量 + 路径居中偏移适配不同屏幕比例
 
 ## 15. 目前的稳定边界
 
@@ -827,10 +808,16 @@ rotation = s / radius
 - `chain.js`：链条推进、插入、断链、并链
 - `match.js`：action context、计分、连击、匹配检测
 - `projectile.js`：弹射体飞行、碰撞、插入
-- `render.js`：所有绘制函数和纹理生成（含关卡选择界面）
+- `render.js`：Canvas 渲染层——仅游戏画面（背景/轨道/球链/射手/粒子/特效）
 - `levels.js`：8 关卡配置数组（路径类型、球链数、颜色数、链速等）
 - `save.js`：localStorage 持久化（关卡解锁进度、最高分）
 - `main.js`：ZumaGame 编排器、输入、粒子、游戏循环、关卡管理
+- `ui/level-select.js`：关卡选择屏（DOM）
+- `ui/game-hud.js`：游戏 HUD 栏（DOM + mini canvas）
+- `ui/end-card.js`：结算卡（DOM）
+- `ui/match-feedback.js`：消除反馈弹窗（DOM）
+
+`render/hud.js` 和 `render/screens.js` 为历史遗留，函数保留但不再被导入调用。
 
 模块间通过 `game.*` 委托包装方法路由，无循环依赖。
 
@@ -910,14 +897,15 @@ rotation = s / radius
 
 | 缓存 | 内容 | 何时创建 |
 |------|------|----------|
-| `staticSceneCache` | 背景渐变 + 可选的关卡背景图片 + 终点（关卡配置了 `background` 时跳过程序化 `drawTrack`） | `createStaticSceneCache()` |
+| `staticSceneCache` | 背景渐变 + 可选的关卡背景图片 + 轨道 + 终点（clip 0→GAME_HEIGHT，无 UI 保留区） | `createStaticSceneCache()` |
 | `cachedTrackPath` (Path2D) | 轨道折线 (~616 点) | `createPath()` |
 | `ballBaseCache[palette]` | 每种颜色的球体基底 gradient | `createBallRenderCache()` |
 | `ballOverCache` | 共享的 matte shade + worn bloom 叠加 | `createBallRenderCache()` |
 | `bandShadeCache` | 腰带边缘阴影 | `createBallRenderCache()` |
 | `frogCacheBehind` | 蛙身 + 下颚 + 口腔 + 腹部凹槽 | `createFrogCache()` |
 | `frogCacheFront` | 上颚 + 鼻孔 + 青铜描边 + 眼睛 | `createFrogCache()` |
-| `hudPanelCache` | HUD 面板底图：石面板 + 石纹斑点 + 玛雅锯齿金边 + 太阳图标 + 子面板微纹理 | `drawOverlay()` 首次调用时 |
+
+注：`hudPanelCache` 已不再使用（HUD 迁移到 DOM）。
 
 优化结果：gradient 创建从 ~190/帧 降到 ~8/帧，lineTo 从 1848/帧降到 0。`ctx.shadowBlur` 调用降到 0（Canvas 2D shadowBlur 触发 GPU 高斯模糊，开销极高；全部改为手工偏移渲染——先画深色偏移 +1px 文字，再画正色原位文字）。
 
@@ -1051,22 +1039,25 @@ main.js loadLevel(index)
 
 这避免了关卡切换时的突兀画面跳转。
 
-### 21.6 Render Additions for Phase 4
+### 21.6 UI Layer (Phase 5 Migration)
 
-`render.js` 新增的绘制函数：
+Phase 5 migrated all UI from Canvas to DOM overlays. The following canvas rendering functions are now **legacy** (retained in `render/hud.js` and `render/screens.js` but no longer called):
 
-| 函数 | 职责 |
-|------|------|
-| `drawLevelSelectScreen()` | 关卡选择主界面（标题 + 关卡按钮网格） |
-| `drawLevelButton()` | 单个关卡按钮（序号、锁定状态、最高分） |
-| `drawPathThumbnail()` | 关卡按钮内的微缩路径预览 |
-| `drawAllClearScreen()` | 全部通关庆祝界面 |
+| 旧函数 | 替代 |
+|--------|------|
+| `drawLevelSelectScreen()` | `src/ui/level-select.js` (DOM) |
+| `drawLevelButton()` | `src/ui/level-select.js` (DOM) |
+| `drawOverlay()` (HUD) | `src/ui/game-hud.js` (DOM) |
+| `drawHudNextPreview()` | `src/ui/game-hud.js` (DOM + mini canvas) |
+| `drawSoundButton()` | `src/ui/game-hud.js` (DOM button) |
+| `drawRestartButton()` | `src/ui/game-hud.js` (DOM button) |
+| `drawMatchFeedback()` | `src/ui/match-feedback.js` (DOM + CSS animation) |
+| `drawRoundStateCard()` | `src/ui/end-card.js` (DOM) |
+| `drawAllClearScreen()` | `src/ui/end-card.js` (DOM) |
 
-HUD 也新增了：
-- 左上角返回按钮（返回关卡选择）
-- 动态关卡名称显示（替代固定标题）
+Canvas `render()` now only draws: background → track → goal → chain → particles → projectile → aim guide → shooter → round-end effects.
 
-### 21.7 Module Dependency Graph (Phase 4, 10 modules)
+### 21.7 Module Dependency Graph (Phase 5, 14 modules)
 
 ```
 config.js   sfx.js   levels.js   save.js  (no deps)
@@ -1075,8 +1066,12 @@ config.js   sfx.js   levels.js   save.js  (no deps)
    ├── chain.js
    ├── match.js
    ├── projectile.js
-   ├── render.js
-   └── main.js ← imports from ALL modules (including levels.js, save.js)
+   ├── render/ (index.js → ball-textures/scene → draw-utils)
+   ├── ui/level-select.js   (imports config, levels, save)
+   ├── ui/game-hud.js       (imports config, render/ball-textures)
+   ├── ui/end-card.js       (imports levels)
+   ├── ui/match-feedback.js (no deps)
+   └── main.js ← imports from ALL modules
 ```
 
-`levels.js` 和 `save.js` 与其他模块无直接依赖，仅被 `main.js` 导入。`chain.js` 通过 `game.levelConfig` 间接读取关卡配置，不直接 import `levels.js`。
+`render/hud.js` 和 `render/screens.js` 为历史遗留，不被 `render/index.js` 导入。
