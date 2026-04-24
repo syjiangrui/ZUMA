@@ -809,6 +809,69 @@ function curvesToPointsArray(curves) {
   return arr;
 }
 
+// ─── HUD overlay wireframes ────────────────────────────────────────
+// Draws wireframe outlines of every game HUD element so the path designer
+// can see exactly which areas will be occluded at runtime.
+// Positions are hardcoded from src/style.css layout values.
+function drawHudOverlay(c) {
+  if (!showHudOverlay) return;
+  c.save();
+
+  const FILL = 'rgba(120, 133, 144, 0.15)';
+  const STROKE = 'rgba(180, 190, 200, 0.5)';
+  const LABEL_COLOR = 'rgba(180, 190, 200, 0.6)';
+  const LINE_WIDTH = 1.5;
+  const DASH = [4, 3];
+  const FONT = '10px -apple-system, sans-serif';
+
+  c.setLineDash(DASH);
+  c.lineWidth = LINE_WIDTH;
+  c.strokeStyle = STROKE;
+  c.fillStyle = FILL;
+  c.font = FONT;
+  c.textAlign = 'center';
+  c.textBaseline = 'middle';
+
+  // Helper: draw one rounded-rect wireframe with label
+  function box(x, y, w, h, r, label) {
+    c.beginPath();
+    c.roundRect(x, y, w, h, r);
+    c.fill();
+    c.stroke();
+    if (label) {
+      c.fillStyle = LABEL_COLOR;
+      c.fillText(label, x + w / 2, y + h / 2);
+      c.fillStyle = FILL;
+    }
+  }
+
+  // 1. Main HUD panel (top-left)
+  box(16, 14, 232, 106, 22, 'HUD 面板');
+
+  // 2. Right-side button group (top-right)
+  // CSS: position:absolute; top:16px; right:16px; display:flex; gap:6px
+  // Items: next-ball 44x44, sound 36x38, restart 56x38
+  // Total width: 44+6+36+6+56 = 148.  Left edge: 430-16-148 = 266
+  box(266, 16, 44, 44, 14, '预览');       // next-ball
+  box(316, 16, 36, 38, 14, '音');         // sound btn
+  box(358, 16, 56, 38, 14, '重开');       // restart btn
+
+  // 3. Back button (bottom-left, position:fixed)
+  // CSS: bottom: max(18px, safe-area); left: max(16px, safe-area)
+  // Button size ~56x38 (min-width:36 + padding, height:38)
+  box(16, 876, 56, 38, 14, '选关');
+
+  // 4. Match feedback popup zone (appears briefly after matches)
+  // CSS: top:114px; left:50%; transform:translateX(-50%); width:192px
+  c.setLineDash([6, 4]);
+  c.strokeStyle = 'rgba(180, 190, 200, 0.25)';
+  c.fillStyle = 'rgba(120, 133, 144, 0.08)';
+  box(119, 114, 192, 50, 18, '消除反馈');
+
+  c.setLineDash([]);
+  c.restore();
+}
+
 // ─── Render ─────────────────────────────────────────────────────────
 function render() {
   const dpr = window.devicePixelRatio || 1;
@@ -871,30 +934,8 @@ function render() {
   ctx.lineWidth = 1 / scale;
   ctx.strokeRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-  // HUD top zone (120px) — deeper overlay so it's clear this area is obstructed
-  ctx.fillStyle = 'rgba(10, 14, 20, 0.65)';
-  ctx.fillRect(0, 0, GAME_WIDTH, 120);
-  ctx.strokeStyle = 'rgba(160, 170, 180, 0.6)';
-  ctx.lineWidth = 2 / scale;
-  ctx.beginPath(); ctx.moveTo(0, 120); ctx.lineTo(GAME_WIDTH, 120); ctx.stroke();
-  // HUD label — centered, larger
-  ctx.fillStyle = 'rgba(160, 170, 180, 0.7)';
-  ctx.font = `bold ${14/scale}px -apple-system, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.fillText('HUD 区域', GAME_WIDTH / 2, 65);
-  ctx.textAlign = 'start';
-
-  // Bottom button zone (70px) — matches actual game button area
-  ctx.fillStyle = 'rgba(10, 14, 20, 0.5)';
-  ctx.fillRect(0, GAME_HEIGHT - 70, GAME_WIDTH, 70);
-  ctx.strokeStyle = 'rgba(160, 170, 180, 0.4)';
-  ctx.lineWidth = 1 / scale;
-  ctx.beginPath(); ctx.moveTo(0, GAME_HEIGHT - 70); ctx.lineTo(GAME_WIDTH, GAME_HEIGHT - 70); ctx.stroke();
-  ctx.fillStyle = 'rgba(160, 170, 180, 0.5)';
-  ctx.font = `bold ${12/scale}px -apple-system, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.fillText('按钮区域', GAME_WIDTH / 2, GAME_HEIGHT - 35);
-  ctx.textAlign = 'start';
+  // HUD element wireframe overlays (precise positions from game CSS)
+  drawHudOverlay(ctx);
 
   // Draw each curve's track — thin clean line for editing
   for (let i = 0; i < level.curves.length; i++) {
@@ -3586,6 +3627,8 @@ function renderPreview() {
   pCtx.drawImage(pg.staticSceneCache, 0, 0);
   drawChain(pg, pCtx);
   drawShooter(pg, pCtx);
+  // HUD wireframe overlay on preview
+  drawHudOverlay(pCtx);
 }
 
 // ─── Canvas setup ───────────────────────────────────────────────────
