@@ -683,35 +683,43 @@ class ZumaGame {
   }
 
   getActivePaletteIndices() {
+    // 收集两条链（双轨时）的颜色信息，确保射手不会给出任何链上都不存在的颜色。
+    // 双轨关卡中，任意一条链上可见的颜色都视为"活跃颜色"，合并后提供给射手。
+    // trackInfos 包含 { chain, totalPathLength } 对，用统一循环遍历。
+    const trackInfos = this.isDualTrack
+      ? [
+          { chain: this.chain, totalPathLength: this.totalPathLength },
+          { chain: this.chain2, totalPathLength: this.totalPathLength2 },
+        ]
+      : [{ chain: this.chain, totalPathLength: this.totalPathLength }];
+
+    // visiblePalettes：当前屏幕上可见的球的颜色（s 在 [0, totalPathLength] 范围内）
+    // allChainPalettes：链上所有球的颜色（包括还在路径外等待进入的球）
     const visiblePalettes = [];
     const allChainPalettes = [];
     const visibleSeen = new Set();
     const allSeen = new Set();
 
-    for (const ball of this.chain) {
-      if (!allSeen.has(ball.paletteIndex)) {
-        allSeen.add(ball.paletteIndex);
-        allChainPalettes.push(ball.paletteIndex);
+    for (const { chain, totalPathLength } of trackInfos) {
+      for (const ball of chain) {
+        // 记录该链上所有球的颜色（去重）
+        if (!allSeen.has(ball.paletteIndex)) {
+          allSeen.add(ball.paletteIndex);
+          allChainPalettes.push(ball.paletteIndex);
+        }
+        // 只有在路径可见范围内的球颜色才算"可见颜色"
+        if (ball.s >= 0 && ball.s <= totalPathLength && !visibleSeen.has(ball.paletteIndex)) {
+          visibleSeen.add(ball.paletteIndex);
+          visiblePalettes.push(ball.paletteIndex);
+        }
       }
-
-      if (
-        ball.s >= 0 &&
-        ball.s <= this.totalPathLength &&
-        !visibleSeen.has(ball.paletteIndex)
-      ) {
-        visibleSeen.add(ball.paletteIndex);
-        visiblePalettes.push(ball.paletteIndex);
-      }
     }
 
-    if (visiblePalettes.length > 0) {
-      return visiblePalettes;
-    }
-
-    if (allChainPalettes.length > 0) {
-      return allChainPalettes;
-    }
-
+    // 优先返回可见颜色，避免给玩家没法消的颜色
+    if (visiblePalettes.length > 0) return visiblePalettes;
+    // 次选：链上所有颜色（球还未进入可见区域时）
+    if (allChainPalettes.length > 0) return allChainPalettes;
+    // 最终回退：关卡配置的颜色数量（链已为空时）
     const colorCount = this.levelConfig?.colorCount ?? 4;
     return Array.from({ length: colorCount }, (_, index) => index);
   }
@@ -722,7 +730,10 @@ class ZumaGame {
   }
 
   syncShooterPalettes() {
-    if (this.chain.length === 0) {
+    // 双轨关卡时需要检查两条链的总球数：只要任意一条链还有球，
+    // 就需要保持射手颜色与现存颜色同步，避免给玩家已经不存在的颜色。
+    const totalBalls = this.chain.length + (this.isDualTrack ? this.chain2.length : 0);
+    if (totalBalls === 0) {
       return;
     }
 
