@@ -252,6 +252,13 @@ const WAYPOINT_INSERT_DISTANCE = 18;
 let waypointMode = false;
 let brushMode = false;
 let showHudOverlay = true;
+
+// ─── Multi-select state ────────────────────────────────────────────
+let selectedPoints = new Set();   // Set of string keys, e.g. "curve:0:p1", "shooter", "waypoint:3"
+let marqueeRect = null;           // { x1, y1, x2, y2 } in game coords, null when inactive
+let marqueeShift = false;         // was Shift held when marquee started?
+let multiDragStart = null;        // { gx, gy, snapshots: Map<key, {x,y}> }
+
 let brushSamples = [];
 const BRUSH_SAMPLE_MIN_DIST = 6;
 const BRUSH_JOIN_DISTANCE = 18;
@@ -1320,6 +1327,152 @@ function isTextInputFocused() {
   if (!el) return false;
   const tag = el.tagName;
   return tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable;
+}
+
+// ─── Multi-select helpers ──────────────────────────────────────────
+
+// Generate a unique string key for a selectable point.
+function getPointKey(type, index, point) {
+  if (type === 'shooter') return 'shooter';
+  if (type === 'waypoint') return `waypoint:${index}`;
+  return `curve:${index}:${point}`;
+}
+
+// Resolve a selection key back to its current {x, y} position.
+function getPointPosition(key) {
+  const level = LEVELS[currentLevel];
+  if (key === 'shooter') return { x: level.shooterPos.x, y: level.shooterPos.y };
+  if (key.startsWith('waypoint:')) {
+    const idx = parseInt(key.split(':')[1], 10);
+    const wp = level.waypoints[idx];
+    return wp ? { x: wp.x, y: wp.y } : null;
+  }
+  if (key.startsWith('curve:')) {
+    const parts = key.split(':');
+    const idx = parseInt(parts[1], 10);
+    const pt = parts[2]; // 'p1', 'p2', 'cp', 'cp1', 'cp2'
+    const c = level.curves[idx];
+    if (!c) return null;
+    const ref = c[pt];
+    return ref ? { x: ref.x, y: ref.y } : null;
+  }
+  return null;
+}
+
+// Write a new position for a selection key into the data model.
+// For curve endpoints (p1/p2), also syncs the shared endpoint of
+// the adjacent curve if they are snapped together (within SNAP_DISTANCE).
+function setPointPosition(key, x, y) {
+  const level = LEVELS[currentLevel];
+  const nx = Math.round(x);
+  const ny = Math.round(y);
+  if (key === 'shooter') {
+    level.shooterPos.x = Math.max(0, Math.min(GAME_WIDTH, nx));
+    level.shooterPos.y = Math.max(0, Math.min(GAME_HEIGHT, ny));
+    document.getElementById('shX').value = level.shooterPos.x;
+    document.getElementById('shY').value = level.shooterPos.y;
+    return;
+  }
+  if (key.startsWith('waypoint:')) {
+    const idx = parseInt(key.split(':')[1], 10);
+    const wp = level.waypoints[idx];
+    if (wp) { wp.x = nx; wp.y = ny; }
+    return;
+  }
+  if (key.startsWith('curve:')) {
+    const parts = key.split(':');
+    const idx = parseInt(parts[1], 10);
+    const pt = parts[2];
+    const c = level.curves[idx];
+    if (c && c[pt]) {
+      const oldX = c[pt].x, oldY = c[pt].y;
+      c[pt].x = nx;
+      c[pt].y = ny;
+      // Sync shared endpoint: if this is p1 or p2, the adjacent curve's
+      // matching endpoint was at the same position before the move.
+      if (pt === 'p2' && idx + 1 < level.curves.length) {
+        const next = level.curves[idx + 1];
+        if (Math.hypot(next.p1.x - oldX, next.p1.y - oldY) < 2) {
+          next.p1.x = nx; next.p1.y = ny;
+        }
+      }
+      if (pt === 'p1' && idx - 1 >= 0) {
+        const prev = level.curves[idx - 1];
+        if (Math.hypot(prev.p2.x - oldX, prev.p2.y - oldY) < 2) {
+          prev.p2.x = nx; prev.p2.y = ny;
+        }
+      }
+    }
+  }
+}
+
+// Collect all selectable point keys for the current level and mode.
+function getAllPointKeys() {
+  const level = LEVELS[currentLevel];
+  const keys = [];
+  if (waypointMode) {
+    for (let i = 0; i < level.waypoints.length; i++) {
+      keys.push(getPointKey('waypoint', i));
+    }
+  } else {
+    for (let i = 0; i < level.curves.length; i++) {
+      const c = level.curves[i];
+      if (isCubicCurve(c)) {
+        keys.push(getPointKey('curve', i, 'p1'));
+        keys.push(getPointKey('curve', i, 'cp1'));
+        keys.push(getPointKey('curve', i, 'cp2'));
+        keys.push(getPointKey('curve', i, 'p2'));
+      } else {
+        keys.push(getPointKey('curve', i, 'p1'));
+        keys.push(getPointKey('curve', i, 'cp'));
+        keys.push(getPointKey('curve', i, 'p2'));
+      }
+    }
+    keys.push('shooter');
+  }
+  return keys;
+}
+
+// Select all points inside a rectangle (game coords).
+function selectPointsInRect(rect, additive) {
+  const x1 = Math.min(rect.x1, rect.x2);
+  const y1 = Math.min(rect.y1, rect.y2);
+  const x2 = Math.max(rect.x1, rect.x2);
+  const y2 = Math.max(rect.y1, rect.y2);
+  const keys = getAllPointKeys();
+  if (!additive) selectedPoints.clear();
+  for (const key of keys) {
+    const pos = getPointPosition(key);
+    if (!pos) continue;
+    if (pos.x >= x1 && pos.x <= x2 && pos.y >= y1 && pos.y <= y2) {
+      if (additive && selectedPoints.has(key)) {
+        selectedPoints.delete(key);
+      } else {
+        selectedPoints.add(key);
+      }
+    }
+  }
+}
+
+// Select all points in the current level/mode.
+function selectAll() {
+  const keys = getAllPointKeys();
+  selectedPoints.clear();
+  for (const key of keys) selectedPoints.add(key);
+}
+
+// Clear all selection state.
+function clearSelection() {
+  selectedPoints.clear();
+  marqueeRect = null;
+  multiDragStart = null;
+}
+
+// Check if a given handle hit result (from findHandle/findWaypointHandle) is in the selection set.
+function isHandleSelected(handle) {
+  if (!handle) return false;
+  const key = getPointKey(handle.type, handle.index, handle.point);
+  return selectedPoints.has(key);
 }
 
 function findWaypointHandle(gx, gy) {
