@@ -152,6 +152,53 @@ const DEFAULT_LEVELS = [
     },
     shooterPos: { x: GAME_WIDTH * 0.5, y: GAME_HEIGHT * 0.82 },
   },
+  // -----------------------------------------------------------------------
+  // Level 9: 双蛇祭道 — Dual-track level with two independent ball chains.
+  // Unlike single-track levels, this entry uses a `tracks` array instead of
+  // top-level pathType/pathParams/chainCount. Each element in `tracks[]`
+  // describes one independent path and its chain settings.
+  // colorCount at the top level is a UI fallback (max of both tracks).
+  // -----------------------------------------------------------------------
+  {
+    id: 9,
+    name: "双蛇祭道",
+    colorCount: 4,  // UI fallback (max of both tracks)
+    // Dual-track level: two independent chains on two paths.
+    // Top-level chainCount/colorCount are omitted; per-track config lives in tracks[].
+    tracks: [
+      {
+        chainCount: 18,
+        chainSpeed: 35,
+        colorCount: 4,
+        pathType: "bezier",
+        pathParams: {
+          points: [
+            // Upper path: gentle S-curve, right-to-left, y ~240-370
+            {x:400, y:260}, {x:330, y:220}, {x:250, y:260},
+            {x:250, y:260}, {x:170, y:300}, {x:110, y:260},
+            {x:110, y:260}, {x:50, y:220},  {x:30, y:300},
+            {x:30, y:300},  {x:10, y:380},  {x:80, y:370},
+          ],
+        },
+      },
+      {
+        chainCount: 18,
+        chainSpeed: 38,
+        colorCount: 4,
+        pathType: "bezier",
+        pathParams: {
+          points: [
+            // Lower path: gentle S-curve, left-to-right, y ~560-700
+            {x:30, y:580},  {x:100, y:540}, {x:180, y:580},
+            {x:180, y:580}, {x:260, y:620}, {x:320, y:580},
+            {x:320, y:580}, {x:380, y:540}, {x:400, y:620},
+            {x:400, y:620}, {x:420, y:700}, {x:350, y:690},
+          ],
+        },
+      },
+    ],
+    shooterPos: { x: 215, y: 466 },
+  },
 ];
 
 // Mutable levels array — starts as a deep copy of defaults,
