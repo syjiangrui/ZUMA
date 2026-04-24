@@ -99,7 +99,7 @@ The game logic and rendering is organized as ES modules within a `ZumaGame` orch
    - `#gameUI` container (position:fixed, transform:scale) matches canvas coordinate system
    - `#levelSelect` is a standalone fixed overlay for the level selection screen
    - `#fadeOverlay` (position:fixed, z-index:50) replaces canvas-drawn fade transitions
-   - "选关" back button is position:fixed on body (bottom-left, independent of canvas scale)
+   - **HUD is a single-row translucent floating bar** (~40px tall, `backdrop-filter: blur`). Layout: `[关卡名] · [分数] · [连击] --- [下一球] [🔊] [↻] [☰]`. All buttons (sound, restart, back/menu) are inside the bar — no separate fixed-position elements.
    - HUD uses a mini `<canvas>` element only for the next-ball preview (needs `drawBall()` textures)
    - Match feedback uses CSS `@keyframes` animation for rise+fade effect
    - End cards (win/lose/all-clear) are DOM panels with stone-button CSS styling
@@ -271,7 +271,7 @@ After experiments with full-sphere UV projection (which caused center stretching
 **Phase 2** (completed) established the full gameplay loop: single-round lifecycle, win/lose conditions, combo tracking, cross-seam matching, and split/merge mechanics. The system is rule-stable.
 
 **Phase 3** (in progress) is visual and audio polish:
-- **Completed**: Material unification (stone body, rolling band, temple glyphs), green-stone frog redesign, debris particle system, victory/defeat full-screen effects, procedural audio (Web Audio API synthesis), sound toggle button, HUD/end-card/button skin upgrade (stone texture panels, Mayan zigzag trim, text hierarchy, button press feedback, rotating next-ball halo, expanded end card with altar badge and pulsing restart button), performance caching (all `shadowBlur` removed, replaced with manual offset shadows)
+- **Completed**: Material unification (stone body, rolling band, temple glyphs), green-stone frog redesign, debris particle system, victory/defeat full-screen effects, procedural audio (Web Audio API synthesis), sound toggle button, end-card/button skin upgrade (stone texture panels, Mayan zigzag trim, text hierarchy, button press feedback, expanded end card with altar badge and pulsing restart button), performance caching (all `shadowBlur` removed, replaced with manual offset shadows). HUD later redesigned as translucent single-row floating bar (Phase 5).
 - **Not Yet**: Multi-level, special ball types, difficulty curves, save/load (Phase 4)
 
 When working on Phase 3 tasks:
@@ -287,7 +287,7 @@ When working on Phase 3 tasks:
 - All UI (HUD, level select, end cards, match feedback) migrated from Canvas to DOM overlays
 - `#fadeOverlay` DOM element replaces canvas-drawn fade transitions
 - `#gameUI` container with `transform:scale()` aligns DOM UI to canvas coordinate space
-- "选关" back button uses `position:fixed` (independent of canvas scaling)
+- HUD redesigned as a single-row translucent floating bar (~40px); "选关" button moved inside HUD bar (no longer `position:fixed` on body)
 - `playShift` system completely removed (no more `pathYBounds`, `computePathYBounds`, `ctx.translate(0,-playShift)`)
 - Canvas clipping simplified: full canvas height, no HUD/button reserves
 - Ball/projectile rendering no longer clipped to play-area rect
@@ -421,7 +421,7 @@ No module imports from a sibling module (except config.js). All cross-subsystem 
 - **Vertical overflow**: When `GAME_HEIGHT × scale > vh` (phone is shorter than 430:932), the game overflows at the bottom. `cropBottom = (GAME_HEIGHT × scale - vh) / scale` tracks the would-be hidden portion in game-coord pixels.
 - **No playShift**: The old system that computed `pathYBounds` and applied `ctx.translate(0, -playShift)` to vertically centre the path has been removed. The canvas renders at (0,0) with no vertical offset. All coordinate spaces are unified — pointer and game world share the same space.
 - **DOM UI overlay**: `#gameUI` (position:fixed, transform-origin:top-left) is scaled via JS `syncGameUIScale()` to match the canvas bounding rect exactly. All HUD text, buttons, end cards, and match feedback are DOM elements inside this container.
-- **Back button**: The "选关" button is `position:fixed` on `<body>` (bottom-left corner), using CSS `env(safe-area-inset-*)` for notch/home-indicator avoidance. It is independent of the canvas coordinate system.
+- **Back button**: The "选关" button is inside the HUD floating bar (part of `#gameUI`). It scales with the canvas transform — no separate `position:fixed` element needed.
 - **Canvas clipping**: `createStaticSceneCache()` clips background/track from y=0 to y=GAME_HEIGHT — the full canvas with no reserved UI zones. Balls and projectiles are also rendered without clipping. The DOM HUD floats on top and naturally occludes whatever is underneath.
 - **HUD notch avoidance**: `hudShift = max(0, safeTop/scale - 14)` is still computed in `mobileLayout` and can be used by DOM HUD positioning if needed.
 - **Safe-area insets**: Read via CSS `env(safe-area-inset-*)` and custom properties `--raw-sat/sab/sal/sar`.

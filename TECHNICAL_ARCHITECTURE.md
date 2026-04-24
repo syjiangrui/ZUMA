@@ -325,7 +325,6 @@ levels.js (LEVELS[i].pathType, pathParams)
   - `.match-feedback` — 消除反馈弹窗（CSS 动画）
   - `.end-card-overlay` — 结算卡（win/lose/all-clear）
 - `#fadeOverlay`（position:fixed, z-index:50）— 淡入淡出过渡遮罩
-- `.game-hud__back`（position:fixed on body）— “选关”按钮，独立于 canvas 缩放
 
 `getUiActionAt()` 始终返回 null — 所有按钮使用原生 DOM click 事件。Canvas 指针事件只处理瞄准和射击。
 
@@ -333,10 +332,8 @@ levels.js (LEVELS[i].pathType, pathParams)
 
 当前可交互 UI 包括：
 
-- HUD 重开按钮（DOM `<button>`）
-- HUD 声音切换按钮（DOM `<button>`）
+- HUD 浮动栏内按钮：重开（↻）、声音切换（🔊/🔇）、返回选关（☰）
 - HUD 下一球预览（DOM 内嵌 36×36 mini canvas）
-- 选关按钮（position:fixed DOM `<button>`）
 - 结算卡按钮（DOM `<button>`）
 - 关卡选择屏按钮（DOM `<button>`）
 
@@ -759,7 +756,7 @@ rotation = s / radius
 **DOM UI 覆盖层对齐**：
 - `#gameUI`（position:fixed）通过 `syncGameUIScale()` 读取 `canvas.getBoundingClientRect()` 并设置 `top/left/transform:scale()`，与 canvas 精确对齐
 - `#levelSelect`（position:fixed, inset:0）独立于 canvas，全屏覆盖
-- `.game-hud__back`（"选关"按钮）是 position:fixed on body，使用 CSS `env(safe-area-inset-*)` 适配底部安全区
+- `.game-hud__back`（"选关"按钮）现在位于 HUD 浮动栏内部，随 `#gameUI` 的 `transform:scale()` 缩放，不再是 body 上的 position:fixed 元素
 - `#fadeOverlay`（position:fixed, z-index:50）覆盖一切，JS 驱动 opacity
 
 **坐标空间**：
