@@ -313,6 +313,19 @@ export function createStaticSceneCache(game) {
   // fails to load, or doesn't fully cover the play area.
   drawBackground(game, cCtx);
 
+  // Play-area clip rect.  Top edge is always HUD_HEIGHT (don't paint under
+  // the HUD).  Bottom edge is usually GAME_HEIGHT - BOTTOM_BUTTON_HEIGHT so
+  // content doesn't spill under the desktop bottom-button strip.  On mobile,
+  // where playShift can pull the bottom buffer zone into the viewport, we
+  // extend the clip down to GAME_HEIGHT so the authored background / slab
+  // gradient covers that zone instead of showing the BOTTOM_BUTTON_HEIGHT
+  // reserve strip as a visible grey band.
+  const clipTop = HUD_HEIGHT;
+  const clipBottom = game.mobileLayout && game.mobileLayout.active
+    ? GAME_HEIGHT
+    : GAME_HEIGHT - BOTTOM_BUTTON_HEIGHT;
+  const clipH = clipBottom - clipTop;
+
   // Layer 1 (optional): authored background artwork from the path editor.
   // When present, it's painted over the procedural gradient using the
   // {x, y, scale} authored in the editor (which previews the runtime result
@@ -324,12 +337,7 @@ export function createStaticSceneCache(game) {
   if (bgCfg && bgImg) {
     cCtx.save();
     cCtx.beginPath();
-    cCtx.rect(
-      0,
-      HUD_HEIGHT,
-      GAME_WIDTH,
-      GAME_HEIGHT - HUD_HEIGHT - BOTTOM_BUTTON_HEIGHT,
-    );
+    cCtx.rect(0, clipTop, GAME_WIDTH, clipH);
     cCtx.clip();
     cCtx.translate(bgCfg.x || 0, bgCfg.y || 0);
     const scale = bgCfg.scale || 1;
@@ -344,12 +352,7 @@ export function createStaticSceneCache(game) {
   // panel draws over it later.
   cCtx.save();
   cCtx.beginPath();
-  cCtx.rect(
-    0,
-    HUD_HEIGHT,
-    GAME_WIDTH,
-    GAME_HEIGHT - HUD_HEIGHT - BOTTOM_BUTTON_HEIGHT,
-  );
+  cCtx.rect(0, clipTop, GAME_WIDTH, clipH);
   cCtx.clip();
   // When an authored background supplies the track artwork, skip the
   // procedural drawTrack() — otherwise we'd paint a stone track on top of

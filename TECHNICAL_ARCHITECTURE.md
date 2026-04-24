@@ -762,6 +762,13 @@ rotation = s / radius
     - 上限 `cropBottom`：再多就会让底部按钮条重新探出视口底部，反而出现空白
 - `playShift` 由 `resize()` 计算，并在 `createPath()` 末尾重新调用 `resize()`，保证换关时与新路径同步
 
+**静态场景裁剪框（移动端放开底部）**：
+- `createStaticSceneCache()` 在画授权背景图和轨道/终点时都用一个 clip 矩形，避免画到 HUD / 底部按钮条
+- 原来 clip 底边是 `GAME_HEIGHT − BOTTOM_BUTTON_HEIGHT`，也就是始终为底部按钮条保留一条"不绘背景"的区域
+- `playShift > 0` 时这条保留区会被上推进入视口，表现为一条突兀的 slab 灰色横带
+- 解决办法：移动端（`mobileLayout.active`）下把 clip 底边放到 `GAME_HEIGHT`，让授权背景图和 procedural slab 一起铺到画布最下。素材本身不需要强制画到 932——画到哪儿结束，下面就自然过渡到 slab 渐变，不会再出现按钮条形状的硬边灰条
+- 桌面端保持原样（底部按钮条仍然保留），不受影响
+
 **坐标空间与指针映射**：
 - `pointer` 存放**屏幕逻辑坐标**（未做 `playShift` 修正）：
   - `pointer.x = (clientX − rect.left) / scale`
