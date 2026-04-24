@@ -881,23 +881,23 @@ function render() {
   ctx.scale(scale, scale);
 
   // Game-realistic background (matches render.js drawBackground)
-  const canopy = ctx.createLinearGradient(0, 0, 0, 176);
+  const canopy = ctx.createLinearGradient(0, 0, 0, 120);
   canopy.addColorStop(0, "#17383e");
   canopy.addColorStop(0.55, "#10272d");
   canopy.addColorStop(1, "#0a1519");
   ctx.fillStyle = canopy;
-  ctx.fillRect(0, 0, GAME_WIDTH, 176);
+  ctx.fillRect(0, 0, GAME_WIDTH, 120);
 
-  const slab = ctx.createLinearGradient(0, 118, 0, GAME_HEIGHT);
+  const slab = ctx.createLinearGradient(0, 60, 0, GAME_HEIGHT);
   slab.addColorStop(0, "#7f8990");
   slab.addColorStop(0.48, "#6e7880");
   slab.addColorStop(1, "#5b646d");
   ctx.fillStyle = slab;
-  ctx.fillRect(0, 108, GAME_WIDTH, GAME_HEIGHT - 108);
+  ctx.fillRect(0, HUD_HEIGHT, GAME_WIDTH, GAME_HEIGHT - HUD_HEIGHT);
 
   // Shooter glow
   const shGlow = LEVELS[currentLevel].shooterPos;
-  const glow = ctx.createRadialGradient(shGlow.x + 22, 118, 14, shGlow.x + 22, 118, 268);
+  const glow = ctx.createRadialGradient(shGlow.x + 22, 60, 14, shGlow.x + 22, 60, 268);
   glow.addColorStop(0, "rgba(233, 192, 98, 0.18)");
   glow.addColorStop(1, "rgba(233, 192, 98, 0)");
   ctx.fillStyle = glow;
