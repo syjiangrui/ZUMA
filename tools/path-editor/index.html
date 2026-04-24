@@ -284,14 +284,13 @@ let shiftConstrain = false;      // Shift held → snap handle angle to 45°
 const PEN_DRAG_THRESHOLD = 3;    // px in game space before drag counts as handle authoring
 
 // ─── Reference image state ─────────────────────────────────────────
-// The "core play area" is the 430×812 rectangle below the HUD and above the
-// bottom-button strip. Background artwork is authored to cover this area —
-// anything that spills into HUD (y<120) or bottom buttons (y>862) will be
-// hidden behind UI at runtime, so we fit reference images to this band.
+// The HUD is now a single floating bar ~40px tall at the top.
+// Background artwork covers the full canvas — the bar is semi-transparent
+// so designers can author backgrounds that fill the entire play area.
 const PLAY_AREA_X = 0;
-const PLAY_AREA_Y = 120;
+const PLAY_AREA_Y = 50;
 const PLAY_AREA_W = GAME_WIDTH;
-const PLAY_AREA_H = GAME_HEIGHT - 120 - 70; // 812
+const PLAY_AREA_H = GAME_HEIGHT - 50; // 882
 
 let refImage = null;
 let refImageSrc = null;   // relative path (e.g. "backgrounds/sample.jpg") when loaded from public/
@@ -852,28 +851,16 @@ function drawHudOverlay(c) {
     }
   }
 
-  // 1. Main HUD panel (top-left)
-  box(16, 14, 232, 106, 22, 'HUD 面板');
+  // 1. Single-row HUD bar (full width minus margins)
+  // CSS: position:absolute; top:6px; left:8px; width:414px; height:40px
+  box(8, 6, 414, 40, 20, 'HUD 浮动栏');
 
-  // 2. Right-side button group (top-right)
-  // CSS: position:absolute; top:16px; right:16px; display:flex; gap:6px
-  // Items: next-ball 44x44, sound 36x38, restart 56x38
-  // Total width: 44+6+36+6+56 = 148.  Left edge: 430-16-148 = 266
-  box(266, 16, 44, 44, 14, '预览');       // next-ball
-  box(316, 16, 36, 38, 14, '音');         // sound btn
-  box(358, 16, 56, 38, 14, '重开');       // restart btn
-
-  // 3. Back button (bottom-left, position:fixed)
-  // CSS: bottom: max(18px, safe-area); left: max(16px, safe-area)
-  // Button size ~56x38 (min-width:36 + padding, height:38)
-  box(16, 876, 56, 38, 14, '选关');
-
-  // 4. Match feedback popup zone (appears briefly after matches)
-  // CSS: top:114px; left:50%; transform:translateX(-50%); width:192px
+  // 2. Match feedback popup zone (appears briefly after matches)
+  // CSS: top:54px; left:50%; transform:translateX(-50%); width:192px
   c.setLineDash([6, 4]);
   c.strokeStyle = 'rgba(180, 190, 200, 0.25)';
   c.fillStyle = 'rgba(120, 133, 144, 0.08)';
-  box(119, 114, 192, 50, 18, '消除反馈');
+  box(119, 54, 192, 50, 18, '消除反馈');
 
   c.setLineDash([]);
   c.restore();
