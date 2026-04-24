@@ -741,26 +741,45 @@ rotation = s / radius
 - Canvas transform：`setTransform(scale×dpr, 0, 0, scale×dpr, 0, 0)`
 
 **垂直溢出处理**：
-- 当 `GAME_HEIGHT × scale > vh`（手机屏幕比 430:932 更矮），游戏底部超出视口
-- `cropBottom = (gameScreenH - vh) / scale`（被裁剪的游戏坐标像素数）
+- 当 `GAME_HEIGHT × scale > vh`（手机屏幕比 430:932 更矮），游戏底部会超出视口
+- `cropBottom = (gameScreenH - vh) / scale`：在不做任何额外偏移时会被截掉的游戏坐标像素数
 - HUD 始终固定在屏幕顶端（`cropTop = 0`）
 - 底部"选关"按钮上移 `cropBottom + safeBottom/scale`，保持在可见区域内
-- 裁剪来自游戏区域的上下余量（canopy 渐变 + 游戏区域缓冲区）
+- 裁剪来自游戏区域的上下余量（HUD 下的缓冲空间 + 底部按钮条），永不裁进 HUD 本身
+
+**路径居中（playShift）**：
+- 只靠"砍底"会让路径整体偏上，视觉上不居中。为此在 HUD 下方的可见游戏区内把路径的几何中心对齐到该区域的垂直中心
+- 只处理**游戏区图层**（背景图、轨道、珠链、射手、粒子）：在渲染时整体 `ctx.translate(0, -playShift)`
+- HUD / 结算卡片 / 关卡选择界面**不**跟随偏移，HUD 始终钉在屏幕顶端
+- 计算方式（见 `resize()`）：
+  - `pathMidY = (pathYBounds.minY + pathYBounds.maxY) / 2`（游戏坐标系，忽略 `x > GAME_WIDTH` 的入口曲线）
+  - `hudHeight = HUD_HEIGHT + hudShift`
+  - `visiblePlayH = vh / scale − hudHeight`
+  - `desiredVisibleY = hudHeight + visiblePlayH / 2`（路径中心希望落在的屏幕逻辑 y）
+  - 由 `pathMidY − playShift = desiredVisibleY` 解得 `playShift = pathMidY − desiredVisibleY`
+  - 钳位：`playShift ∈ [0, cropBottom]`
+    - 下限 0：绝不向下偏移（否则游戏区顶会被 HUD 盖住或露出黑边）
+    - 上限 `cropBottom`：再多就会让底部按钮条重新探出视口底部，反而出现空白
+- `playShift` 由 `resize()` 计算，并在 `createPath()` 末尾重新调用 `resize()`，保证换关时与新路径同步
+
+**坐标空间与指针映射**：
+- `pointer` 存放**屏幕逻辑坐标**（未做 `playShift` 修正）：
+  - `pointer.x = (clientX − rect.left) / scale`
+  - `pointer.y = (clientY − rect.top) / scale`
+- `shooter.y` 是**游戏逻辑坐标**（和路径、珠链同一空间，带 `playShift` 偏移）
+- `updateAim()` 内部把两套空间对齐：`target.y = pointer.y + playShift`，再与 `shooter.y` 比较
+- HUD 按钮矩形也在屏幕逻辑空间，和 `pointer` 直接比，不需要加 `playShift`
+- `resetRound()` / `pointerleave` 里把指针重置到"射手右上方"时，要反向减去 `playShift` 才能落在屏幕逻辑空间
 
 **刘海/灵动岛避让**：
 - 安全区通过 CSS `env(safe-area-inset-*)` 和自定义属性 `--raw-sat/sab/sal/sar` 获取
 - `hudShift = max(0, safeTop / scale - 14)`：将 HUD 交互元素（按钮、预览球）推到刘海下方
 - HUD 面板背景保持 y=0，其颜色自然延伸到刘海后面
-- 刘海区域额外填充 canopy 渐变色（`#17383e → #10272d`），避免出现黑色
+- 当 `hudShift > 0` 或 `playShift > 0` 时，整条 HUD 高度（`HUD_HEIGHT + hudShift`）填满 canopy 渐变（`#17383e → #10272d`），避免偏移后的游戏区从 HUD 面板透明区（x&lt;16 或 x&gt;248）漏出
 
 **底部安全区**：
-- 矮屏手机（有溢出）：游戏背景自然延伸到 home indicator 后面
-- 高屏手机（无溢出）：底部间隙用 slab 渐变（`#5b646d → #3a4248`）填充
-
-**指针映射**：
-- `pointer.x = (clientX - rect.left) / scale`
-- `pointer.y = (clientY - rect.top) / scale`
-- 无 cropTop 偏移（HUD 固定顶端）
+- 矮屏手机（`cropBottom > 0`）：游戏背景自然延伸到 home indicator 后面，不额外填充
+- 高屏手机（`cropBottom = 0`）：底部间隙用 slab 渐变（`#5b646d → #3a4248`）填充
 
 **横屏处理**：显示旋转提示遮罩，不提供横屏支持。
 
@@ -769,7 +788,7 @@ rotation = s / radius
 - 不需要写一套 DOM HUD 再做坐标同步
 - 手机和桌面行为更一致
 - 全屏沉浸体验，无 PC 端容器装饰
-- 游戏画面无变形，通过裁剪余量适配不同屏幕比例
+- 游戏画面无变形，通过裁剪余量 + 路径居中偏移适配不同屏幕比例
 
 ## 15. 目前的稳定边界
 

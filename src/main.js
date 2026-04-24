@@ -155,6 +155,27 @@ class ZumaGame {
     this.pathPoints = pathData.pathPoints;
     this.totalPathLength = pathData.totalPathLength;
     this.cachedTrackPath = pathData.cachedTrackPath;
+    this.pathYBounds = this.computePathYBounds();
+    // Recompute mobile layout because playShift depends on path bounds.
+    if (this.canvas) this.resize();
+  }
+
+  // Compute the visible path's vertical bounds in game coords. Off-screen
+  // entry segments (x > GAME_WIDTH) are excluded so the spiral/serpentine
+  // "approach line" that sits in the right gutter doesn't drag minY up.
+  computePathYBounds() {
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const pt of this.pathPoints) {
+      if (pt.x > GAME_WIDTH) continue;
+      if (pt.y < minY) minY = pt.y;
+      if (pt.y > maxY) maxY = pt.y;
+    }
+    if (!isFinite(minY) || !isFinite(maxY)) {
+      // Fallback to the play area itself — no path or path is fully off-screen.
+      return { minY: HUD_HEIGHT, maxY: GAME_HEIGHT - BOTTOM_BUTTON_HEIGHT };
+    }
+    return { minY, maxY };
   }
 
   getPointAtDistance(s) {
@@ -405,8 +426,13 @@ class ZumaGame {
   // the board we need near-360-degree rotation, so interpolation follows the
   // shortest angular path instead of clamping to an upper arc.
   updateAim(dt) {
+    // On mobile, the play area can be translated upward by playShift so the
+    // path midpoint centers in the visible play region.  Pointer is stored in
+    // screen-logical space (unshifted), so we add playShift when comparing to
+    // shooter.y which lives in play-area-logical (shifted) space.
+    const playShift = this.mobileLayout?.playShift || 0;
     const targetAngle = Math.atan2(
-      this.pointer.y - this.shooter.y,
+      (this.pointer.y + playShift) - this.shooter.y,
       this.pointer.x - this.shooter.x,
     );
     const delta = Math.atan2(
@@ -492,14 +518,19 @@ class ZumaGame {
     this.score = 0;
     this.shooter.angle = -Math.PI / 2;
     this.pointer.active = false;
-    this.pointer.x = this.shooter.x + 90;
-    this.pointer.y = this.shooter.y - 120;
 
     // Rebuild path for this level (path shape/params may differ per level).
+    // This also refreshes mobileLayout.playShift so the pointer placement
+    // below uses the up-to-date value.
     this.createPath();
     // Invalidate cached rendering that depends on the path.
     this.hudPanelCache = null;
     this.staticSceneCache = null;
+
+    this.pointer.x = this.shooter.x + 90;
+    // Pointer is stored in screen-logical space, but shooter.y is in
+    // play-area-logical space — subtract playShift to keep them consistent.
+    this.pointer.y = this.shooter.y - 120 - (this.mobileLayout?.playShift || 0);
 
     this.createChain();
     this.currentPaletteIndex = this.getRandomPaletteIndex();
@@ -678,7 +709,7 @@ class ZumaGame {
     this.canvas.addEventListener("pointerleave", () => {
       if (!this.pointer.active && !this.uiPressAction) {
         this.pointer.x = this.shooter.x + 90;
-        this.pointer.y = this.shooter.y - 120;
+        this.pointer.y = this.shooter.y - 120 - (this.mobileLayout?.playShift || 0);
       }
     });
 
@@ -704,11 +735,12 @@ class ZumaGame {
     if (this.isMobileDevice()) {
       // Mobile full-screen: canvas fills the entire viewport.
       // Uniform scale fills width (no side gutters, no distortion).
-      // HUD is ALWAYS pinned to the screen top.  When the phone is
-      // shorter than the game's 430:932 aspect ratio, the game overflows
-      // at the bottom — the excess is cropped from the play-area buffer
-      // and the bottom button strip.  The "选关" button is shifted up so
-      // it remains visible and accessible.
+      // HUD is ALWAYS pinned to the screen top.  Below the HUD, the play
+      // area (background + track + balls + shooter) is vertically offset
+      // so the path's vertical midpoint sits at the centre of the visible
+      // play region.  On short phones this replaces a plain bottom-crop
+      // with a balanced shift that keeps the whole path on-screen when
+      // possible and puts equal buffer on both sides of it.
       const vw = window.innerWidth;
       const vh = window.innerHeight;
       this.canvas.width = Math.round(vw * dpr);
@@ -717,8 +749,9 @@ class ZumaGame {
       const scale = vw / GAME_WIDTH;
       const gameScreenH = GAME_HEIGHT * scale;
 
-      // How many game-coordinate pixels are hidden below the screen.
-      // cropTop is always 0 — HUD stays at the top.
+      // How many game-coordinate pixels are hidden below the screen when
+      // the game renders without any vertical offset.  cropTop stays 0
+      // because the HUD is always pinned to the top.
       const cropBottom = gameScreenH > vh
         ? (gameScreenH - vh) / scale
         : 0;
@@ -730,6 +763,34 @@ class ZumaGame {
         ? Math.max(0, safeTop / scale - 14)
         : 0;
 
+      // Play-area vertical offset (applied only when the game overflows
+      // the viewport).  Goal: align the path's midpoint with the vertical
+      // centre of the region *below* the HUD.  Clamped so we never shift
+      // past the play-area buffers on either side — i.e. we crop from the
+      // empty HUD/bottom-button buffer zones, never into the HUD itself
+      // and never leave a gap below the bottom-button strip.
+      let playShift = 0;
+      if (cropBottom > 0 && this.pathYBounds) {
+        const pathMidY = (this.pathYBounds.minY + this.pathYBounds.maxY) / 2;
+        const hudHeight = HUD_HEIGHT + hudShift;
+        const visiblePlayH = vh / scale - hudHeight;
+        const desiredVisibleY = hudHeight + visiblePlayH / 2;
+        // We want pathMidY to render at desiredVisibleY in screen-logical
+        // space.  With a downward translate of -playShift, game-y p
+        // appears at screen-logical y = p - playShift.  Solve for
+        // playShift: pathMidY - playShift = desiredVisibleY.
+        playShift = pathMidY - desiredVisibleY;
+        // Clamp so the shift only consumes buffer zones.
+        // Upper clamp: don't shift so far up that the bottom-button strip
+        // lifts into the viewport (we still want it cropped off).  The
+        // maximum useful upward shift is cropBottom — beyond that the
+        // bottom buffer would become visible again.
+        playShift = Math.min(playShift, cropBottom);
+        // Lower clamp: never shift downward (would hide the play-area top
+        // behind the HUD).
+        playShift = Math.max(0, playShift);
+      }
+
       this.mobileLayout = {
         active: true,
         scale,
@@ -739,6 +800,7 @@ class ZumaGame {
         offsetX: 0,
         offsetY: 0,
         hudShift,
+        playShift,
         safeTop,
         safeBottom: this.getSafeAreaInset('bottom'),
         screenWidth: vw,

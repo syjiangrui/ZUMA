@@ -1,4 +1,4 @@
-import { GAME_WIDTH, GAME_HEIGHT, BALL_PALETTES, TEMPLE_GLYPH_VARIANTS } from '../config.js';
+import { GAME_WIDTH, GAME_HEIGHT, HUD_HEIGHT, BALL_PALETTES, TEMPLE_GLYPH_VARIANTS } from '../config.js';
 import {
   createBallPatternCanvas,
   createBallRenderCache,
@@ -118,6 +118,15 @@ export function render(game) {
     ctx.translate(ox, oy);
   }
 
+  // Mobile play-area shift: translate the static scene + gameplay layers up
+  // so the path's vertical midpoint sits at the centre of the visible play
+  // region.  HUD is drawn unshifted below, so it stays pinned to the top.
+  const playShift = mobile?.playShift || 0;
+  if (playShift > 0) {
+    ctx.save();
+    ctx.translate(0, -playShift);
+  }
+
   // Static scene (background + track + goal) — rebuilt when path changes
   if (!game.staticSceneCache) {
     createStaticSceneCache(game);
@@ -129,20 +138,26 @@ export function render(game) {
   drawAimGuide(game, ctx);
   drawShooter(game, ctx);
 
+  if (playShift > 0) {
+    ctx.restore();
+  }
+
   // HUD overlay — on mobile, draw a canopy-colored fill behind the notch
   // so the top of the screen (behind the notch) has color instead of black.
   // Then draw the HUD panel background at its natural position (y=0) while
   // shifting only the interactive elements (buttons, preview) down by hudShift.
-  if (mobile && mobile.hudShift > 0) {
-    // Extend the canopy gradient above the HUD panel to fill the notch area.
-    // The HUD panel starts at y≈14 in game coords, but the canopy gradient
-    // in drawBackground covers y=0–176. We fill from y=0 up to the panel top
-    // with the canopy color so the notch zone has a dark teal tint, not black.
-    const canopyFill = ctx.createLinearGradient(0, 0, 0, 14 + mobile.hudShift);
+  //
+  // When playShift > 0 (play area is shifted up to centre the path), the top
+  // of the shifted play area could otherwise leak into the HUD strip through
+  // the transparent regions of the HUD panel (x<16 or x>248).  Covering the
+  // full HUD strip height with the canopy gradient prevents that.
+  if (mobile && (mobile.hudShift > 0 || (mobile.playShift || 0) > 0)) {
+    const fillH = HUD_HEIGHT + (mobile.hudShift || 0);
+    const canopyFill = ctx.createLinearGradient(0, 0, 0, fillH);
     canopyFill.addColorStop(0, "#17383e");
     canopyFill.addColorStop(1, "#10272d");
     ctx.fillStyle = canopyFill;
-    ctx.fillRect(0, 0, GAME_WIDTH, 14 + mobile.hudShift);
+    ctx.fillRect(0, 0, GAME_WIDTH, fillH);
   }
   drawOverlay(game, ctx, mobile?.hudShift || 0);
   drawMatchFeedback(game, ctx);
