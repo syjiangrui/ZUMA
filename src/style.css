@@ -474,197 +474,130 @@ body {
 .game-frame { position: relative; }
 
 /* ---------------------------------------------------------------
-   Game HUD — top bar with score, combo, buttons
+   Game HUD — single-row translucent floating bar
    --------------------------------------------------------------- */
 .game-hud {
   display: none;
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 430px;
-}
-.game-hud.is-visible { display: block; }
+  top: 6px;
+  left: 8px;
+  right: 8px;
+  height: 40px;
+  background: rgba(10, 18, 20, 0.62);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(200, 170, 50, 0.25);
+  border-radius: 20px;
+  padding: 0 6px 0 14px;
 
-/* Main stone panel background */
-.game-hud__panel {
-  position: absolute;
-  top: 14px;
-  left: 16px;
-  width: 232px;
-  height: 106px;
-  background: linear-gradient(180deg, #7a8590 0%, #636e78 48%, #636e78 100%);
-  border: 2px solid rgba(180, 150, 80, 0.55);
-  border-radius: 22px;
-  box-shadow:
-    inset 0 1px 0 rgba(240, 225, 180, 0.12),
-    0 4px 0 rgba(8, 12, 16, 0.15);
-  /* Mayan zigzag trim at bottom via pseudo-element */
+  /* Single-row flex layout */
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+
+  font-family: Georgia, serif;
+  color: #e8dcc4;
+  pointer-events: none;       /* pass-through to canvas by default */
+}
+.game-hud.is-visible {
+  display: flex;
+}
+
+/* --- Left group: level name, score, combo --- */
+.game-hud__info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;              /* allow text truncation */
   overflow: hidden;
-}
-.game-hud__panel::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 4px;
-  right: 4px;
-  height: 8px;
-  background: repeating-linear-gradient(
-    90deg,
-    transparent 0px, transparent 3px,
-    rgba(200, 170, 50, 0.22) 3px, rgba(200, 170, 50, 0.22) 7px,
-    transparent 7px, transparent 10px
-  );
-  mask-image: linear-gradient(to bottom, transparent, black);
-  -webkit-mask-image: linear-gradient(to bottom, transparent, black);
-}
-
-/* Text content inside the panel */
-.game-hud__content {
-  position: relative;
-  padding: 6px 14px 8px;
 }
 
 .game-hud__title {
-  margin: 0;
-  font: 700 22px Georgia, serif;
+  font: 600 13px Georgia, serif;
   color: #f0d57a;
-  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.4);
-  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 80px;
 }
 
-.game-hud__subtitle {
-  margin: 0;
-  font: 11px Georgia, serif;
-  color: rgba(220, 210, 180, 0.5);
-}
-
-/* Status + chain row */
-.game-hud__row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 4px;
-}
-
-.game-hud__sub-panel {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 10px;
-  background: linear-gradient(180deg, #6e7a84, #5a6570);
-  border: 1px solid rgba(160, 130, 70, 0.5);
-  border-radius: 12px;
-  box-shadow: inset 0 1px 0 rgba(240, 225, 180, 0.08);
-  font: 600 12px Georgia, serif;
-  color: #c8bfa8;
-}
-
-.game-hud__dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #6cc870;
+.game-hud__sep {
+  color: rgba(200, 180, 120, 0.35);
+  font-size: 14px;
   flex-shrink: 0;
-}
-.game-hud__dot--win { background: #f0d57a; }
-.game-hud__dot--lose { background: #d45040; }
-
-.game-hud__value {
-  color: #f5d872;
-  font-weight: 700;
-  font-size: 13px;
-}
-
-/* Score + combo row */
-.game-hud__score-row {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  margin-top: 2px;
-}
-
-.game-hud__label {
-  font: 600 12px Georgia, serif;
-  color: #c8bfa8;
 }
 
 .game-hud__score-val {
   font: 700 14px Georgia, serif;
   color: #f5d872;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .game-hud__combo {
-  font: 600 12px Georgia, serif;
+  font: 600 11px Georgia, serif;
   color: #c8bfa8;
-  margin-left: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
-/* Right-side buttons area */
-.game-hud__buttons {
-  position: absolute;
-  top: 16px;
-  right: 16px;
+/* --- Right group: next-ball, sound, restart, back --- */
+.game-hud__actions {
   display: flex;
-  gap: 6px;
-  align-items: flex-start;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  pointer-events: auto;       /* buttons intercept clicks */
 }
 
-/* Next-ball preview container */
+/* Next-ball preview */
 .game-hud__next {
-  width: 44px;
-  height: 44px;
-  background: linear-gradient(180deg, #727e88, #5e6a74);
-  border: 1.5px solid rgba(200, 170, 50, 0.6);
-  border-radius: 14px;
-  box-shadow:
-    inset 0 1px 0 rgba(247, 228, 187, 0.2),
-    0 2px 0 rgba(0, 0, 0, 0.16);
+  width: 32px;
+  height: 32px;
+  background: rgba(30, 40, 44, 0.5);
+  border: 1px solid rgba(200, 170, 50, 0.35);
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  pointer-events: none;
+  flex-shrink: 0;
 }
 .game-hud__next canvas {
   display: block;
+  width: 28px;
+  height: 28px;
 }
 
-/* HUD stone button (small) */
+/* Action buttons (icon style) */
 .game-hud__btn {
-  min-width: 36px;
-  height: 38px;
-  padding: 0 12px;
-  background: linear-gradient(180deg, #94724d, #705139);
-  border: 1.5px solid rgba(242, 217, 151, 0.52);
-  border-radius: 14px;
-  color: #f4e7c3;
-  font: 600 13px Georgia, serif;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: rgba(60, 50, 35, 0.55);
+  border: 1px solid rgba(200, 170, 50, 0.3);
+  border-radius: 10px;
+  color: #e8dcc4;
+  font-size: 15px;
   cursor: pointer;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 240, 210, 0.15),
-    0 2px 0 rgba(0, 0, 0, 0.2);
   -webkit-tap-highlight-color: transparent;
-  transition: transform 0.06s;
+  transition: transform 0.06s, background 0.1s;
   pointer-events: auto;
+  flex-shrink: 0;
 }
 .game-hud__btn:active {
-  transform: translateY(1px);
-  box-shadow: inset 0 1px 0 rgba(255, 240, 210, 0.15);
+  transform: scale(0.92);
+  background: rgba(80, 65, 40, 0.7);
 }
 
-/* Sound button icon sizing */
-.game-hud__btn--sound {
+/* Icon-only variant (sound, restart, menu) */
+.game-hud__btn--icon {
   font-size: 16px;
-  padding: 0 8px;
-}
-
-/* Back button pinned to bottom-left of the viewport */
-.game-hud__back {
-  position: fixed;
-  bottom: max(18px, env(safe-area-inset-bottom, 0px));
-  left: max(16px, env(safe-area-inset-left, 0px));
-  z-index: 6;
-  pointer-events: auto;
+  line-height: 1;
 }
 
 /* ---------------------------------------------------------------
@@ -673,7 +606,7 @@ body {
 .match-feedback {
   display: none;
   position: absolute;
-  top: 114px;
+  top: 56px;
   left: 50%;
   transform: translateX(-50%);
   width: 192px;
