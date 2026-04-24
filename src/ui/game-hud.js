@@ -1,32 +1,24 @@
-// game-hud.js — DOM-based HUD overlay for the gameplay screen.
-// Replaces canvas-drawn HUD from src/render/hud.js (drawOverlay).
+// game-hud.js — Single-row floating HUD bar for the gameplay screen.
+// Layout: [level] [score] [combo] --- [next-ball] [sound] [restart] [back]
 
-import { BALL_RADIUS, TAU } from '../config.js';
+import { BALL_RADIUS } from '../config.js';
 import { drawBall } from '../render/ball-textures.js';
 
 let hudEl = null;
 let titleEl = null;
-let subtitleEl = null;
-let statusDotEl = null;
-let statusLabelEl = null;
-let chainLenEl = null;
-let scoreLabelEl = null;
 let scoreValEl = null;
 let comboEl = null;
 let nextCanvas = null;
 let nextCtx = null;
+let soundBtnEl = null;
 let backBtnEl = null;
 
 // Cache last-rendered values so we only touch the DOM when something changes.
 let prevScore = -1;
-let prevChainLen = -1;
 let prevCombo = '';
-let prevState = '';
 let prevLevel = -1;
 let prevNextPalette = -1;
 let prevMuted = null;
-
-let soundBtnEl = null;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -36,69 +28,39 @@ export function createGameHudDOM(game) {
   hudEl = document.getElementById('gameHud');
   if (!hudEl) return;
 
-  // --- Main stone panel ---
-  const panel = document.createElement('div');
-  panel.className = 'game-hud__panel';
+  // --- Left: info section ---
+  const infoGroup = document.createElement('div');
+  infoGroup.className = 'game-hud__info';
 
-  const content = document.createElement('div');
-  content.className = 'game-hud__content';
-
-  // Title
-  titleEl = document.createElement('h2');
+  titleEl = document.createElement('span');
   titleEl.className = 'game-hud__title';
-  content.appendChild(titleEl);
+  infoGroup.appendChild(titleEl);
 
-  // Subtitle
-  subtitleEl = document.createElement('p');
-  subtitleEl.className = 'game-hud__subtitle';
-  content.appendChild(subtitleEl);
+  // Separator dot
+  const sep1 = document.createElement('span');
+  sep1.className = 'game-hud__sep';
+  sep1.textContent = '·';
+  infoGroup.appendChild(sep1);
 
-  // Status + chain row
-  const statusRow = document.createElement('div');
-  statusRow.className = 'game-hud__row';
-
-  const statusPanel = document.createElement('div');
-  statusPanel.className = 'game-hud__sub-panel';
-  statusDotEl = document.createElement('span');
-  statusDotEl.className = 'game-hud__dot';
-  statusLabelEl = document.createElement('span');
-  statusPanel.appendChild(statusDotEl);
-  statusPanel.appendChild(statusLabelEl);
-  statusRow.appendChild(statusPanel);
-
-  const chainPanel = document.createElement('div');
-  chainPanel.className = 'game-hud__sub-panel';
-  const chainLabel = document.createElement('span');
-  chainLabel.textContent = '链长';
-  chainLenEl = document.createElement('span');
-  chainLenEl.className = 'game-hud__value';
-  chainPanel.appendChild(chainLabel);
-  chainPanel.appendChild(chainLenEl);
-  statusRow.appendChild(chainPanel);
-
-  content.appendChild(statusRow);
-
-  // Score + combo row
-  const scoreRow = document.createElement('div');
-  scoreRow.className = 'game-hud__score-row';
-  scoreLabelEl = document.createElement('span');
-  scoreLabelEl.className = 'game-hud__label';
-  scoreLabelEl.textContent = '分数';
   scoreValEl = document.createElement('span');
   scoreValEl.className = 'game-hud__score-val';
+  infoGroup.appendChild(scoreValEl);
+
+  // Separator dot
+  const sep2 = document.createElement('span');
+  sep2.className = 'game-hud__sep';
+  sep2.textContent = '·';
+  infoGroup.appendChild(sep2);
+
   comboEl = document.createElement('span');
   comboEl.className = 'game-hud__combo';
-  scoreRow.appendChild(scoreLabelEl);
-  scoreRow.appendChild(scoreValEl);
-  scoreRow.appendChild(comboEl);
-  content.appendChild(scoreRow);
+  infoGroup.appendChild(comboEl);
 
-  panel.appendChild(content);
-  hudEl.appendChild(panel);
+  hudEl.appendChild(infoGroup);
 
-  // --- Right-side buttons ---
-  const btns = document.createElement('div');
-  btns.className = 'game-hud__buttons';
+  // --- Right: action buttons ---
+  const actionsGroup = document.createElement('div');
+  actionsGroup.className = 'game-hud__actions';
 
   // Next-ball preview
   const nextWrap = document.createElement('div');
@@ -108,41 +70,40 @@ export function createGameHudDOM(game) {
   nextCanvas.height = 36;
   nextCtx = nextCanvas.getContext('2d');
   nextWrap.appendChild(nextCanvas);
-  btns.appendChild(nextWrap);
+  actionsGroup.appendChild(nextWrap);
 
   // Sound button
   soundBtnEl = document.createElement('button');
-  soundBtnEl.className = 'game-hud__btn game-hud__btn--sound';
+  soundBtnEl.className = 'game-hud__btn game-hud__btn--icon';
   soundBtnEl.setAttribute('aria-label', '切换声音');
   soundBtnEl.addEventListener('click', () => {
     game.sfx.unlock();
     game.sfx.toggleMute();
     syncSoundBtn(game);
   });
-  btns.appendChild(soundBtnEl);
+  actionsGroup.appendChild(soundBtnEl);
 
   // Restart button
   const restartBtn = document.createElement('button');
-  restartBtn.className = 'game-hud__btn';
-  restartBtn.textContent = '重开';
+  restartBtn.className = 'game-hud__btn game-hud__btn--icon';
+  restartBtn.textContent = '↻';  // ↻ restart symbol
+  restartBtn.setAttribute('aria-label', '重新开始');
   restartBtn.addEventListener('click', () => {
     game.resetRound();
   });
-  btns.appendChild(restartBtn);
+  actionsGroup.appendChild(restartBtn);
 
-  hudEl.appendChild(btns);
-
-  // --- Back/level-select button (bottom-left of viewport) ---
-  // Appended to <body> with position:fixed so it's independent of the
-  // game-ui transform scaling.
+  // Back/level-select button — now inside the HUD bar, not on <body>
   backBtnEl = document.createElement('button');
-  backBtnEl.className = 'game-hud__btn game-hud__back';
-  backBtnEl.textContent = '选关';
-  backBtnEl.style.display = 'none';
+  backBtnEl.className = 'game-hud__btn game-hud__btn--icon';
+  backBtnEl.textContent = '☰';  // ☰ menu symbol
+  backBtnEl.setAttribute('aria-label', '返回选关');
   backBtnEl.addEventListener('click', () => {
     game.goToLevelSelect();
   });
-  document.body.appendChild(backBtnEl);
+  actionsGroup.appendChild(backBtnEl);
+
+  hudEl.appendChild(actionsGroup);
 }
 
 /**
@@ -155,28 +116,10 @@ export function updateGameHud(game) {
   const levelName = game.levelConfig?.name ?? '祭坛试炼';
   const levelNum = game.currentLevel ?? 1;
 
-  // Title + subtitle (only update on level change)
+  // Title (only update on level change)
   if (prevLevel !== levelNum) {
-    titleEl.textContent = levelName;
-    subtitleEl.textContent = `第 ${levelNum} 关 · 祭坛试炼`;
+    titleEl.textContent = `${levelName}`;
     prevLevel = levelNum;
-  }
-
-  // State dot + label
-  const state = game.gameState;
-  if (prevState !== state) {
-    statusDotEl.className = 'game-hud__dot' +
-      (state === 'win' ? ' game-hud__dot--win' :
-       state === 'lose' ? ' game-hud__dot--lose' : '');
-    statusLabelEl.textContent = game.getGameStateLabel();
-    prevState = state;
-  }
-
-  // Chain length
-  const chainLen = game.chain.length;
-  if (prevChainLen !== chainLen) {
-    chainLenEl.textContent = chainLen;
-    prevChainLen = chainLen;
   }
 
   // Score
@@ -204,17 +147,15 @@ export function updateGameHud(game) {
 
 export function showGameHud() {
   if (hudEl) hudEl.classList.add('is-visible');
-  if (backBtnEl) backBtnEl.style.display = '';
   resetCache();
 }
 
 export function hideGameHud() {
   if (hudEl) hudEl.classList.remove('is-visible');
-  if (backBtnEl) backBtnEl.style.display = 'none';
 }
 
 /**
- * No-op — back button is now position:fixed via CSS, no JS layout needed.
+ * No-op — layout is fully CSS-driven, no JS positioning needed.
  */
 export function layoutGameHud(game) {}
 
@@ -224,9 +165,7 @@ export function layoutGameHud(game) {}
 
 function resetCache() {
   prevScore = -1;
-  prevChainLen = -1;
   prevCombo = '';
-  prevState = '';
   prevLevel = -1;
   prevNextPalette = -1;
   prevMuted = null;
