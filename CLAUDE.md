@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Repository**: https://github.com/syjiangrui/ZUMA.git
 
-**Current Status**: Phase 5 (UI architecture). Canvas→DOM UI migration complete. ES module refactoring complete (14 modules). 8-level game with level selection, multiple path types, difficulty curve, local save/load, and fade transitions. All UI (HUD, level select, end cards, match feedback) now rendered as DOM overlays; canvas only draws the game world.
+**Current Status**: Phase 5 (UI architecture) + Phase 6 (dual-track). Canvas→DOM UI migration complete. ES module refactoring complete (14 modules). 9-level game with level selection, multiple path types, difficulty curve, local save/load, and fade transitions. All UI (HUD, level select, end cards, match feedback) now rendered as DOM overlays; canvas only draws the game world. Level 9 is a dual-track level with two independent ball chains on separate paths.
 
 ## Development Commands
 
@@ -266,6 +266,10 @@ After experiments with full-sphere UV projection (which caused center stretching
    - Action context lifecycle
    - Split/merge timing
 
+4. **Dual-Track Field Duplication**: Level 9's dual-track support uses parallel `*2` fields (`chain2`, `chainHeadS2`, `splitState2`, `pathPoints2`, etc.) instead of a generic multi-track array. This is intentional YAGNI — only one dual-track level exists. If 3+ tracks are ever needed, refactor all `*2` fields into a `tracks[]` array of track state objects. The `getTrackState(game, trackIndex)` helper in `chain.js` already abstracts the access pattern, so the refactor surface is contained.
+
+5. **Path Editor Dual-Track**: The path editor (`tools/path-editor/`) does not support multi-track editing or `level-paths.json` dual-track format. Level 9 paths are hardcoded in `levels.js`. Extending the editor is a separate effort.
+
 ## Phase 2 → Phase 3 Transition
 
 **Phase 2** (completed) established the full gameplay loop: single-round lifecycle, win/lose conditions, combo tracking, cross-seam matching, and split/merge mechanics. The system is rule-stable.
@@ -300,6 +304,41 @@ When working on future tasks:
 - **Do** use the `stone-btn` / `level-card` CSS classes for new buttons
 - **Do** add new UI screens as DOM overlays, not canvas-drawn screens
 - **Do not** re-introduce `playShift` or canvas clipping for UI zones
+
+## Dual-Track Architecture (Level 9)
+
+Level 9 "双蛇祭道" introduces dual-track gameplay: two independent ball chains on separate paths with a single shared shooter.
+
+### Design Decisions
+
+| Aspect | Decision |
+|--------|----------|
+| Lose condition | Both chains must reach their goals |
+| Win condition | Both chains must be fully cleared |
+| Shooter | Single frog, free aim at both paths |
+| Combo | Shared across paths (same `actionContexts` Map) |
+| Scope | Only Level 9; architecture not generalized to N tracks |
+
+### Implementation Approach
+
+**Minimal intrusion via field duplication:** ZumaGame carries parallel `*2` fields (`chain2`, `chainHeadS2`, `splitState2`, `pathPoints2`, `totalPathLength2`, `cachedTrackPath2`, `chainIntro2`, `mergeSettle2`). Single-track levels keep these null/empty — zero runtime cost.
+
+**`getTrackState(game, trackIndex)` in `chain.js`:** Returns a uniform accessor object (getters/setters) that routes to either track's fields. All chain/match/projectile logic calls this helper instead of reading `game.chain` directly. Core algorithms are unchanged — only the data access pattern differs.
+
+**Level config:** Dual-track levels use a `tracks[]` array instead of top-level `pathType`/`pathParams`. The `isDualTrack` getter checks `levelConfig.tracks.length > 1`.
+
+### Key coupling points
+
+- `pendingMatchChecks` is a shared queue; each entry carries `trackIndex`. Processed once per frame during track-0's `updateChain` call.
+- `actionContexts` remain global — this enables cross-track combo accumulation.
+- `findChainCollision()` scans both chains; returns the nearest hit with `trackIndex`.
+- Lose detection uses per-frame `track1ReachedGoal`/`track2ReachedGoal` flags; `updateRoundOutcome()` checks both.
+
+When working on dual-track features:
+- **Do not** generalize to N tracks unless there's a concrete need (YAGNI)
+- **Do** use `getTrackState()` for any new code that needs to access chain/split/path state
+- **Do** pass `trackIndex` through delegation wrappers on ZumaGame
+- **Do not** add new direct references to `game.chain` in chain.js / match.js / projectile.js — use `ts.chain`
 
 ## Completed Refactoring
 
