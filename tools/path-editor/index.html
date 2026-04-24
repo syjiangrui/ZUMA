@@ -2045,6 +2045,19 @@ function updateCanvasCursor() {
 
 window.addEventListener('keydown', e => {
   if (isTextInputFocused()) return;
+  // Multi-select: Ctrl/Cmd+A = select all, Escape = clear selection
+  if ((e.ctrlKey || e.metaKey) && e.code === 'KeyA' && !penMode && !brushMode) {
+    e.preventDefault();
+    selectAll();
+    render();
+    return;
+  }
+  if (e.code === 'Escape' && selectedPoints.size > 0 && !penMode && !brushMode && !waypointMode) {
+    e.preventDefault();
+    clearSelection();
+    render();
+    return;
+  }
   if (e.code === 'Space' && !e.repeat) { spaceHeld = true; updateCanvasCursor(); }
   // Pen-tool modifier keys. We track these globally so mousemove/mousedown
   // can read them without needing to thread the event through helpers.
@@ -2078,7 +2091,10 @@ window.addEventListener('keydown', e => {
     }
   } else {
     if (e.code === 'Escape' && brushMode) { window.toggleBrush(); }
-    if (e.code === 'Escape' && waypointMode) { window.toggleWaypoints(); }
+    if (e.code === 'Escape' && waypointMode) {
+      if (selectedPoints.size > 0) { clearSelection(); render(); }
+      else { window.toggleWaypoints(); }
+    }
   }
   if ((e.code === 'Delete' || e.code === 'Backspace') && waypointMode && selectedWaypoint >= 0) {
     e.preventDefault();
@@ -2669,6 +2685,7 @@ window.deleteCurve = function() {
   level.curves.splice(selectedCurve, 1);
   selectedCurve = Math.min(selectedCurve, level.curves.length - 1);
   clearFitStats(level);
+  clearSelection();
   buildCurveList();
   updateWaypointMeta();
   render();
@@ -2681,6 +2698,7 @@ window.clearAll = function() {
   selectedCurve = -1;
   selectedWaypoint = -1;
   clearFitStats(level);
+  clearSelection();
   buildCurveList();
   updateWaypointMeta();
   render();
@@ -2700,6 +2718,7 @@ window.toggleWaypoints = function() {
     }
   }
   dragging = null;
+  clearSelection();
   updateCanvasCursor();
   render();
 };
@@ -2774,6 +2793,7 @@ window.smoothJoints = function() {
       buildCurveList();
       clearFitStats(level);
       updateWaypointMeta();
+      clearSelection();
       render();
     }
     return;
@@ -2784,6 +2804,7 @@ window.smoothJoints = function() {
     buildCurveList();
     clearFitStats(level);
     updateWaypointMeta();
+    clearSelection();
     render();
   }
 };
@@ -2869,6 +2890,7 @@ window.refitPath = function() {
   selectedCurve = level.curves.length - 1;
   buildCurveList();
   updateWaypointMeta();
+  clearSelection();
   render();
 };
 
@@ -2877,6 +2899,7 @@ window.toggleBrush = function() {
   // Cancel any in-progress drag when switching modes
   if (dragging === 'brush') brushSamples = [];
   dragging = null;
+  clearSelection();
   updateCanvasCursor();
   render();
 };
@@ -2888,6 +2911,7 @@ window.togglePen = function() {
     enterPenMode();
   }
   dragging = null;
+  clearSelection();
   render();
 };
 
@@ -2988,6 +3012,7 @@ function switchLevel(index, activeBtn = null) {
   selectedCurve = -1;
   selectedWaypoint = -1;
   selectedAnchor = null;
+  clearSelection();
   document.querySelectorAll('.lv-tab').forEach(b => b.classList.remove('active'));
   const btn = activeBtn || tabsEl.querySelector(`.lv-tab[data-level="${index}"]`);
   if (btn) btn.classList.add('active');
