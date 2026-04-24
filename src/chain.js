@@ -487,7 +487,8 @@ function resolveSplitClosure(game, ts) {
   triggerMergeSettle(ts, seamIndex);
   // Pass ts.trackIndex so the match queue entries know which track's chain
   // to check. The shared pendingMatchChecks queue stores trackIndex per entry.
-  game.queueAdjacentMatchChecks(seamIndex, seamIndex + 1, seamActionId, 0.03, "seam");
+  // 双轨支持：将 trackIndex 作为最后一个参数传递给 queueAdjacentMatchChecks
+  game.queueAdjacentMatchChecks(seamIndex, seamIndex + 1, seamActionId, 0.03, "seam", ts.trackIndex);
 }
 
 // ---------------------------------------------------------------------------

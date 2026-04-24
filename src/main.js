@@ -326,23 +326,25 @@ class ZumaGame {
     updatePendingMatchChecksFn(this, dt);
   }
 
-  queueMatchCheck(ballId, delay, actionId, trigger) {
-    queueMatchCheckFn(this, ballId, delay, actionId, trigger);
+  // 双轨支持：所有 match 代理方法新增 trackIndex 参数，转发到模块函数
+  queueMatchCheck(ballId, delay, actionId, trigger, trackIndex = 0) {
+    queueMatchCheckFn(this, ballId, delay, actionId, trigger, trackIndex);
   }
 
-  setBallAction(index, actionId) {
-    setBallActionFn(this, index, actionId);
+  setBallAction(index, actionId, trackIndex = 0) {
+    setBallActionFn(this, index, actionId, trackIndex);
   }
 
-  queueAdjacentMatchChecks(leftIndex, rightIndex, actionId, delay, trigger) {
-    queueAdjacentMatchChecksFn(this, leftIndex, rightIndex, actionId, delay, trigger);
+  queueAdjacentMatchChecks(leftIndex, rightIndex, actionId, delay, trigger, trackIndex = 0) {
+    queueAdjacentMatchChecksFn(this, leftIndex, rightIndex, actionId, delay, trigger, trackIndex);
   }
 
   // Expand a same-color run from a given seed index. This function is also
   // responsible for deciding whether a removal creates a split segment or
   // simply shortens an already contiguous chain.
-  resolveMatchesFrom(index, actionId = null, trigger = "insert") {
-    resolveMatchesFromFn(this, index, actionId, trigger);
+  // 双轨支持：新增 trackIndex 参数
+  resolveMatchesFrom(index, actionId = null, trigger = "insert", trackIndex = 0) {
+    resolveMatchesFromFn(this, index, actionId, trigger, trackIndex);
   }
 
   // --- Chain delegation wrappers ------------------------------------------
@@ -1113,12 +1115,14 @@ class ZumaGame {
 
   // Spawn debris particles at the screen position of each eliminated ball.
   // Called from resolveMatchesFrom() just before the chain splice.
-  spawnMatchParticles(startIndex, count, paletteIndex) {
+  // 双轨支持：第一个参数改为 chainArray（轨道的 chain 引用），
+  // 这样 match.js 可以传入 ts.chain 而不是始终读 game.chain。
+  spawnMatchParticles(chainArray, startIndex, count, paletteIndex) {
     const palette = BALL_PALETTES[paletteIndex];
     const colors = [palette.base, palette.bright, palette.accent];
 
     for (let i = 0; i < count; i++) {
-      const ball = this.chain[startIndex + i];
+      const ball = chainArray[startIndex + i];
 
       for (let j = 0; j < PARTICLE_COUNT_PER_BALL; j++) {
         if (this.particles.length >= PARTICLE_MAX_TOTAL) {
