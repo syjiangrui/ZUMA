@@ -2397,6 +2397,14 @@ cv.addEventListener('mousemove', e => {
     const dy = (e.offsetY - dragStart.y) / scale;
     refImgX = dragStart.refImgX + dx;
     refImgY = dragStart.refImgY + dy;
+    // Sync to level.background so the preview panel reflects the move in real-time
+    const bg = LEVELS[currentLevel].background;
+    if (bg) {
+      bg.x = Math.round(refImgX * 100) / 100;
+      bg.y = Math.round(refImgY * 100) / 100;
+      if (previewGame) previewGame.staticSceneCache = null;
+      previewDirty = true;
+    }
     render();
     return;
   }
@@ -3324,12 +3332,28 @@ window.updateRefSettings = function() {
   refImgScale = scVal / 100;
   document.getElementById('refOpacityVal').textContent = opVal + '%';
   document.getElementById('refScaleVal').textContent = scVal + '%';
+  // Sync scale to level.background so the preview panel reflects the change
+  const bg = LEVELS[currentLevel].background;
+  if (bg) {
+    bg.scale = Math.round(refImgScale * 10000) / 10000;
+    if (previewGame) previewGame.staticSceneCache = null;
+    previewDirty = true;
+  }
   render();
 };
 
 window.resetRefPos = function() {
   if (!refImage) return;
   applyCoverToPlayArea();
+  // Sync to level.background so the preview panel reflects the reset
+  const bg = LEVELS[currentLevel].background;
+  if (bg) {
+    bg.x = Math.round(refImgX * 100) / 100;
+    bg.y = Math.round(refImgY * 100) / 100;
+    bg.scale = Math.round(refImgScale * 10000) / 10000;
+    if (previewGame) previewGame.staticSceneCache = null;
+    previewDirty = true;
+  }
   render();
 };
 
