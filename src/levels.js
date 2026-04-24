@@ -12,7 +12,7 @@ const DEFAULT_LEVELS = [
     id: 1,
     name: "石阶祭坛",
     chainCount: 20,
-    chainSpeed: 40,
+    chainSpeed: 30,
     colorCount: 3,
     pathType: "bezier",
     pathParams: {
@@ -31,7 +31,7 @@ const DEFAULT_LEVELS = [
     id: 2,
     name: "密林回廊",
     chainCount: 23,
-    chainSpeed: 43,
+    chainSpeed: 32,
     colorCount: 3,
     pathType: "rectangular",
     pathParams: {
@@ -49,7 +49,7 @@ const DEFAULT_LEVELS = [
     id: 3,
     name: "月影偏环",
     chainCount: 27,
-    chainSpeed: 47,
+    chainSpeed: 35,
     colorCount: 4,
     pathType: "spiral",
     pathParams: {
@@ -66,7 +66,7 @@ const DEFAULT_LEVELS = [
     id: 4,
     name: "神庙长廊",
     chainCount: 30,
-    chainSpeed: 50,
+    chainSpeed: 38,
     colorCount: 4,
     pathType: "rectangular",
     pathParams: {
@@ -84,7 +84,7 @@ const DEFAULT_LEVELS = [
     id: 5,
     name: "断月回旋",
     chainCount: 32,
-    chainSpeed: 53,
+    chainSpeed: 40,
     colorCount: 4,
     pathType: "openArc",
     pathParams: {
@@ -103,7 +103,7 @@ const DEFAULT_LEVELS = [
     id: 6,
     name: "双庭回廊",
     chainCount: 35,
-    chainSpeed: 56,
+    chainSpeed: 42,
     colorCount: 5,
     pathType: "rectangular",
     pathParams: {
@@ -121,7 +121,7 @@ const DEFAULT_LEVELS = [
     id: 7,
     name: "观星偏廊",
     chainCount: 38,
-    chainSpeed: 60,
+    chainSpeed: 45,
     colorCount: 5,
     pathType: "rectangular",
     pathParams: {
@@ -139,7 +139,7 @@ const DEFAULT_LEVELS = [
     id: 8,
     name: "黄金祭坛",
     chainCount: 42,
-    chainSpeed: 64,
+    chainSpeed: 48,
     colorCount: 5,
     pathType: "spiral",
     pathParams: {
