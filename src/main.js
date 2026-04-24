@@ -179,17 +179,36 @@ class ZumaGame {
 
   // --- Path delegation wrappers -------------------------------------------
 
-  // Build the track as an Archimedean spiral around the central shooter altar.
-  // Gameplay still only moves balls by path distance; the spiral is just a more
-  // faithful geometric source for the sampled path points.
+  // 构建路径。双轨关卡时从 tracks[] 分别构建两条路径。
+  // 单轨关卡（无 tracks[]）沿用原有顶层 pathType/pathParams 逻辑。
   createPath() {
     const cfg = this.levelConfig;
-    const pathType = cfg?.pathType ?? "spiral";
-    const pathParams = cfg?.pathParams ?? {};
-    const pathData = createPathFn(this.shooter.x, this.shooter.y, pathType, pathParams);
-    this.pathPoints = pathData.pathPoints;
-    this.totalPathLength = pathData.totalPathLength;
-    this.cachedTrackPath = pathData.cachedTrackPath;
+    if (cfg?.tracks && cfg.tracks.length > 1) {
+      // 双轨关卡：分别从 tracks[0] 和 tracks[1] 构建路径
+      const t0 = cfg.tracks[0];
+      const pathData0 = createPathFn(this.shooter.x, this.shooter.y, t0.pathType, t0.pathParams);
+      this.pathPoints = pathData0.pathPoints;
+      this.totalPathLength = pathData0.totalPathLength;
+      this.cachedTrackPath = pathData0.cachedTrackPath;
+
+      const t1 = cfg.tracks[1];
+      const pathData1 = createPathFn(this.shooter.x, this.shooter.y, t1.pathType, t1.pathParams);
+      this.pathPoints2 = pathData1.pathPoints;
+      this.totalPathLength2 = pathData1.totalPathLength;
+      this.cachedTrackPath2 = pathData1.cachedTrackPath;
+    } else {
+      // 单轨关卡：沿用原有逻辑
+      const pathType = cfg?.pathType ?? "spiral";
+      const pathParams = cfg?.pathParams ?? {};
+      const pathData = createPathFn(this.shooter.x, this.shooter.y, pathType, pathParams);
+      this.pathPoints = pathData.pathPoints;
+      this.totalPathLength = pathData.totalPathLength;
+      this.cachedTrackPath = pathData.cachedTrackPath;
+      // 清除第二轨道路径数据（确保前一个双轨关卡的残留不污染单轨关卡）
+      this.pathPoints2 = [];
+      this.totalPathLength2 = 0;
+      this.cachedTrackPath2 = null;
+    }
     if (this.canvas) this.resize();
   }
 
