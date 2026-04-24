@@ -15,9 +15,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Since this is a single-page HTML game with no build system, development is straightforward:
 
 ### Run the game
-- Serve via HTTP: `python3 -m http.server 8000` then open `http://localhost:8000`
+- Dev server: `npx vite` then open the URL shown (default `http://localhost:5173`)
+- Build: `npx vite build` (output to `dist/`)
+- Preview build: `npx vite preview`
 - ES modules require HTTP — `file://` URLs will not work (CORS restriction)
-- No build, transpilation, or bundling required
 - All development can happen by editing files and refreshing the browser
 
 ### Testing gameplay
@@ -27,10 +28,10 @@ Since this is a single-page HTML game with no build system, development is strai
   - **Mouse/Touch**: Drag to aim, release to fire
 - Test on mobile device/browser (iOS Safari, Chrome Mobile) by opening the HTML file
 
-### No linting or testing infrastructure
-- Project currently has no formal test suite, linter, or build tooling
-- Code validation is manual during development
-- Future phases may introduce modularization and tooling
+### Build tooling
+- Vite 5.4.x for dev server and production builds
+- Multi-entry: main game + path editor (`tools/path-editor/`)
+- No formal test suite or linter yet
 
 ## Architecture & Code Organization
 
@@ -373,10 +374,14 @@ No module imports from a sibling module (except config.js). All cross-subsystem 
 ## Mobile Viewport Notes
 
 - Logical canvas: `430 x 932` (portrait, 9:19.6 ratio)
-- CSS scales to fit viewport while preserving aspect ratio
-- Safe-area insets (`env(safe-area-inset-*)`) handled for notch/dynamic island
+- **Mobile full-screen mode**: On mobile (`pointer: coarse` AND `innerWidth < 700`), the phone-frame container is removed and the canvas fills the full viewport (`100vw × 100dvh`)
+- **Scaling**: Uniform `scale = vw / GAME_WIDTH` fills width with no side gutters. No distortion (non-uniform scaling is never used).
+- **Vertical overflow**: When `GAME_HEIGHT × scale > vh` (phone is shorter than 430:932), the game overflows at the bottom. `cropBottom` (game-coord pixels) tracks the hidden portion. HUD is always pinned to screen top; bottom buttons ("选关") shift up by `cropBottom + safeBottom/scale` to stay visible.
+- **HUD notch avoidance**: `hudShift` pushes HUD interactive elements (buttons, preview ball) below the safe-area top. HUD panel background stays at y=0 so its color extends behind the notch. A canopy gradient fill covers the notch zone.
+- **Safe-area insets**: Read via CSS `env(safe-area-inset-*)` and custom properties `--raw-sat/sab/sal/sar`. Top inset drives `hudShift`; bottom inset adjusts the back button position.
+- **Bottom gap fill**: On tall phones where the game doesn't fill the viewport, a slab gradient fills the gap below the game canvas.
 - Touch-action disabled on canvas to prevent browser pan/zoom
-- No horizontal orientation support (portrait only)
+- Portrait only (landscape shows a rotate-hint overlay)
 
 ## Performance Architecture
 

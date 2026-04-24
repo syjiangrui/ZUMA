@@ -703,27 +703,29 @@ class ZumaGame {
 
     if (this.isMobileDevice()) {
       // Mobile full-screen: canvas fills the entire viewport.
-      // Scale based on WIDTH so the game always fills horizontally — no
-      // side gutters.  The game starts at the TOP of the screen so its
-      // dark canopy / slab gradients naturally extend behind the notch
-      // and home-indicator.  HUD buttons are shifted down to avoid the
-      // notch (they overlap into the play-area buffer).  Any gap at the
-      // bottom (very tall phones) is filled with the slab gradient.
+      // Uniform scale fills width (no side gutters, no distortion).
+      // HUD is ALWAYS pinned to the screen top.  When the phone is
+      // shorter than the game's 430:932 aspect ratio, the game overflows
+      // at the bottom — the excess is cropped from the play-area buffer
+      // and the bottom button strip.  The "选关" button is shifted up so
+      // it remains visible and accessible.
       const vw = window.innerWidth;
       const vh = window.innerHeight;
       this.canvas.width = Math.round(vw * dpr);
       this.canvas.height = Math.round(vh * dpr);
 
       const scale = vw / GAME_WIDTH;
-      const offsetY = 0;
+      const gameScreenH = GAME_HEIGHT * scale;
 
-      // HUD shift: push the HUD elements below the safe-area / notch so
-      // they remain accessible.  The HUD is allowed to overlap into the
-      // top of the play area (which has buffer).
+      // How many game-coordinate pixels are hidden below the screen.
+      // cropTop is always 0 — HUD stays at the top.
+      const cropBottom = gameScreenH > vh
+        ? (gameScreenH - vh) / scale
+        : 0;
+
+      // HUD shift: push the HUD interactive elements below the safe-area /
+      // notch so they remain accessible.
       const safeTop = this.getSafeAreaInset('top');
-      // Game y=0 is at screen y=0 (offsetY=0).
-      // We want HUD panel top (game y ≈ 14 + hudShift) to sit below safeTop.
-      // (14 + hudShift) * scale >= safeTop
       const hudShift = safeTop > 0
         ? Math.max(0, safeTop / scale - 14)
         : 0;
@@ -732,8 +734,10 @@ class ZumaGame {
         active: true,
         scale,
         dpr,
+        cropTop: 0,
+        cropBottom,
         offsetX: 0,
-        offsetY,
+        offsetY: 0,
         hudShift,
         safeTop,
         safeBottom: this.getSafeAreaInset('bottom'),
@@ -835,6 +839,13 @@ class ZumaGame {
   }
 
   getHudBackButtonRect() {
+    const m = this.mobileLayout;
+    if (m && m.cropBottom > 0) {
+      // Shift the button up so it stays visible above the screen bottom
+      // and above the safe-area (home indicator).
+      const safeShift = m.safeBottom > 0 ? m.safeBottom / m.scale : 0;
+      return { x: 16, y: GAME_HEIGHT - 54 - m.cropBottom - safeShift, w: 80, h: 36 };
+    }
     return { x: 16, y: GAME_HEIGHT - 54, w: 80, h: 36 };
   }
 

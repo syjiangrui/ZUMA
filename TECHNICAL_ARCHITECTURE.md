@@ -724,16 +724,52 @@ rotation = s / radius
 
 当前移动端适配有几条明确原则：
 
-1. 所有逻辑基于固定分辨率
-2. canvas 通过 CSS/设备像素比缩放
+1. 所有逻辑基于固定分辨率（430 × 932）
+2. 手机端全屏：移除 PC 端的圆角手机容器，canvas 填满整个视口（`100vw × 100dvh`）
 3. 所有按钮都在 canvas 内部统一坐标系中绘制和命中
 4. 输入层统一用 pointer events
 5. UI 点击命中优先于玩法输入
+
+### 手机端全屏适配细节
+
+**检测条件**：`(pointer: coarse) AND innerWidth < 700` 时进入移动全屏模式。
+
+**缩放策略**：
+- `scale = vw / GAME_WIDTH`（均匀缩放，填满宽度，无侧边空白，无变形）
+- DPR 上限为 2（避免高 DPR 设备 canvas 过大）
+- Canvas 物理尺寸 = `vw × dpr` × `vh × dpr`
+- Canvas transform：`setTransform(scale×dpr, 0, 0, scale×dpr, 0, 0)`
+
+**垂直溢出处理**：
+- 当 `GAME_HEIGHT × scale > vh`（手机屏幕比 430:932 更矮），游戏底部超出视口
+- `cropBottom = (gameScreenH - vh) / scale`（被裁剪的游戏坐标像素数）
+- HUD 始终固定在屏幕顶端（`cropTop = 0`）
+- 底部"选关"按钮上移 `cropBottom + safeBottom/scale`，保持在可见区域内
+- 裁剪来自游戏区域的上下余量（canopy 渐变 + 游戏区域缓冲区）
+
+**刘海/灵动岛避让**：
+- 安全区通过 CSS `env(safe-area-inset-*)` 和自定义属性 `--raw-sat/sab/sal/sar` 获取
+- `hudShift = max(0, safeTop / scale - 14)`：将 HUD 交互元素（按钮、预览球）推到刘海下方
+- HUD 面板背景保持 y=0，其颜色自然延伸到刘海后面
+- 刘海区域额外填充 canopy 渐变色（`#17383e → #10272d`），避免出现黑色
+
+**底部安全区**：
+- 矮屏手机（有溢出）：游戏背景自然延伸到 home indicator 后面
+- 高屏手机（无溢出）：底部间隙用 slab 渐变（`#5b646d → #3a4248`）填充
+
+**指针映射**：
+- `pointer.x = (clientX - rect.left) / scale`
+- `pointer.y = (clientY - rect.top) / scale`
+- 无 cropTop 偏移（HUD 固定顶端）
+
+**横屏处理**：显示旋转提示遮罩，不提供横屏支持。
 
 这套方案的优点是：
 
 - 不需要写一套 DOM HUD 再做坐标同步
 - 手机和桌面行为更一致
+- 全屏沉浸体验，无 PC 端容器装饰
+- 游戏画面无变形，通过裁剪余量适配不同屏幕比例
 
 ## 15. 目前的稳定边界
 

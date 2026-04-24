@@ -35,20 +35,20 @@ export function createTextures(game) {
 }
 
 // Fill the bottom gap (when the game is shorter than the viewport) with the
-// slab gradient so no black strip appears at the bottom.  The game starts at
-// the top of the screen (offsetY=0), so the canopy gradient naturally
-// extends behind the notch — no top gap fill is needed.
+// slab gradient so no black strip appears at the bottom.  When the game
+// overflows (cropBottom > 0), there is no gap — the game extends beyond
+// the screen.  This only applies to tall phones where the game doesn't fill
+// the viewport height.
 function fillMobileBottomGap(game, ctx) {
   const m = game.mobileLayout;
-  if (!m) return;
+  if (!m || m.cropBottom > 0) return;
 
   const gameH = GAME_HEIGHT * m.scale;
-  const gameBottom = m.offsetY + gameH;
-  if (gameBottom >= m.screenHeight) return;
+  if (gameH >= m.screenHeight) return;
 
   const cw = game.canvas.width;
   const ch = game.canvas.height;
-  const top = Math.floor(gameBottom * m.dpr);
+  const top = Math.floor(gameH * m.dpr);
   const grad = ctx.createLinearGradient(0, top, 0, ch);
   grad.addColorStop(0, '#5b646d');
   grad.addColorStop(1, '#3a4248');
