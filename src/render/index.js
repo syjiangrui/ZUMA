@@ -94,7 +94,14 @@ export function render(game) {
     createStaticSceneCache(game);
   }
   ctx.drawImage(game.staticSceneCache, 0, 0);
-  drawChain(game, ctx);
+  // 绘制球链。drawChain 接受显式的 chain 数组和 totalPathLength，
+  // 这样单轨和双轨关卡都可以复用同一函数而无需内部分支。
+  // 主路径球链（所有关卡都有）
+  drawChain(game, ctx, game.chain, game.totalPathLength);
+  // 双轨关卡：绘制第二条路径上的球链（isDualTrack 为 false 时 chain2 为空数组，跳过）
+  if (game.isDualTrack) {
+    drawChain(game, ctx, game.chain2, game.totalPathLength2);
+  }
   drawParticles(game, ctx);
   drawProjectile(game, ctx);
   drawAimGuide(game, ctx);

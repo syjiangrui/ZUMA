@@ -113,28 +113,37 @@ export function drawBackground(game, ctx) {
   ctx.fill();
 }
 
-export function drawTrack(game, ctx) {
+// drawTrack 现在接受 trackPath 参数（Path2D），而不是从 game 上读取。
+// 这样单轨和双轨关卡都可以用同一函数绘制各自的轨道——调用方只需传入
+// 对应的 cachedTrackPath 或 cachedTrackPath2。
+export function drawTrack(game, ctx, trackPath) {
   ctx.save();
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
+  // 外阴影层：宽边深色描边，让轨道有立体厚重感
   ctx.strokeStyle = "rgba(18, 22, 28, 0.14)";
   ctx.lineWidth = 16;
-  strokePath(game, ctx);
+  strokePath(ctx, trackPath);
 
+  // 主轨道层：石材灰色填充
   ctx.strokeStyle = "rgba(111, 121, 130, 0.92)";
   ctx.lineWidth = 10;
-  strokePath(game, ctx);
+  strokePath(ctx, trackPath);
 
+  // 内边缘层：深色细线，增强轨道槽感
   ctx.strokeStyle = "rgba(60, 70, 78, 0.34)";
   ctx.lineWidth = 4;
-  strokePath(game, ctx);
+  strokePath(ctx, trackPath);
 
   ctx.restore();
 }
 
-export function drawGoal(game, ctx) {
-  const goal = game.pathPoints[game.pathPoints.length - 1];
+// drawGoal 现在接受 pathPoints 参数，而不是从 game.pathPoints 读取。
+// 这样双轨关卡可以分别为 pathPoints 和 pathPoints2 绘制终点标记。
+export function drawGoal(game, ctx, pathPoints) {
+  // 终点标记始终取路径最后一个采样点
+  const goal = pathPoints[pathPoints.length - 1];
   ctx.save();
   ctx.translate(goal.x, goal.y);
 
@@ -160,14 +169,16 @@ export function drawGoal(game, ctx) {
   ctx.restore();
 }
 
-export function drawChain(game, ctx) {
-  // Now that HUD is a DOM overlay, we no longer need to clip balls to a
-  // play-area rect — the DOM HUD naturally floats on top of the canvas.
-  // Balls that enter the HUD zone simply render behind it.
-
-  // Only draw balls that are currently on the playable portion of the path.
-  for (const ball of game.chain) {
-    if (ball.s < 0 || ball.s > game.totalPathLength) {
+// drawChain 现在接受 chain 数组和 totalPathLength 作为显式参数。
+// 这样单轨和双轨关卡都可以复用同一函数：
+//   单轨：drawChain(game, ctx, game.chain, game.totalPathLength)
+//   双轨：drawChain(game, ctx, game.chain2, game.totalPathLength2)
+export function drawChain(game, ctx, chain, totalPathLength) {
+  // HUD 是 DOM 覆盖层，球不需要裁剪到播放区域——DOM HUD 自然浮在 canvas 上方。
+  // 跑出路径范围的球（ball.s < 0 或 > totalPathLength）不绘制，
+  // 避免在路径外渲染已消失的球。
+  for (const ball of chain) {
+    if (ball.s < 0 || ball.s > totalPathLength) {
       continue;
     }
 
@@ -273,8 +284,10 @@ export function drawParticles(game, ctx) {
   ctx.globalAlpha = 1;
 }
 
-function strokePath(game, ctx) {
-  ctx.stroke(game.cachedTrackPath);
+// strokePath 现在接受显式的 trackPath（Path2D）参数，
+// 而不是通过 game 间接读取。调用方决定绘制哪条路径。
+function strokePath(ctx, trackPath) {
+  ctx.stroke(trackPath);
 }
 
 export function createStaticSceneCache(game) {
@@ -328,9 +341,19 @@ export function createStaticSceneCache(game) {
   // glowing end marker appears at the logical path terminus regardless of
   // what the art does.
   if (!(bgCfg && bgImg)) {
-    drawTrack(game, cCtx);
+    // 主路径轨道
+    drawTrack(game, cCtx, game.cachedTrackPath);
+    // 双轨关卡：绘制第二条轨道（cachedTrackPath2 仅在双轨关卡中非空）
+    if (game.cachedTrackPath2) {
+      drawTrack(game, cCtx, game.cachedTrackPath2);
+    }
   }
-  drawGoal(game, cCtx);
+  // 主路径终点标记
+  drawGoal(game, cCtx, game.pathPoints);
+  // 双轨关卡：绘制第二个终点标记（pathPoints2 仅在双轨关卡中有内容）
+  if (game.pathPoints2 && game.pathPoints2.length > 0) {
+    drawGoal(game, cCtx, game.pathPoints2);
+  }
   cCtx.restore();
   game.staticSceneCache = cache;
 }
