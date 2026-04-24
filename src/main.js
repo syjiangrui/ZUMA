@@ -68,6 +68,19 @@ class ZumaGame {
     this.gameState = "playing";
     // splitState 表示球链被中段消除后，当前临时分成前后两段。
     this.splitState = null;
+    // --- Track 2 state (dual-track levels only; 双轨关卡第二条路径状态) ---
+    // 以下字段在单轨关卡中始终为空/零，不参与任何计算逻辑。
+    this.pathPoints2 = [];
+    this.totalPathLength2 = 0;
+    this.cachedTrackPath2 = null;
+    this.chain2 = [];
+    this.chainHeadS2 = 0;
+    this.splitState2 = null;
+    this.chainIntro2 = null;
+    this.mergeSettle2 = null;
+    // 每帧的 lose 判定标志位（双轨关卡需要两条链都到终点才判负）
+    this.track1ReachedGoal = false;
+    this.track2ReachedGoal = false;
     this.projectile = null;
     this.nextBallId = 1;
     this.pendingMatchChecks = [];
@@ -494,6 +507,12 @@ class ZumaGame {
     return this.gameState === "win" && this.currentLevel >= LEVELS.length;
   }
 
+  // 判断当前关卡是否为双轨关卡（tracks 数组包含两条或以上路径）。
+  // 双轨关卡使用 levelConfig.tracks[] 替代顶层 pathType/pathParams。
+  get isDualTrack() {
+    return Array.isArray(this.levelConfig?.tracks) && this.levelConfig.tracks.length > 1;
+  }
+
   // A round reset must clear every transient gameplay structure that can leak
   // across attempts: projectile, seam state, delayed match checks, palettes and
   // id allocation. This is the single restart path used by the constructor, the
@@ -512,6 +531,14 @@ class ZumaGame {
     this.setGameState("playing");
     this.projectile = null;
     this.splitState = null;
+    // Track 2 reset (双轨关卡第二条路径清理；单轨关卡中这些字段始终为空，无副作用)
+    this.chain2 = [];
+    this.chainHeadS2 = 0;
+    this.splitState2 = null;
+    this.chainIntro2 = null;
+    this.mergeSettle2 = null;
+    this.track1ReachedGoal = false;
+    this.track2ReachedGoal = false;
     this.pendingMatchChecks = [];
     this.nextBallId = 1;
     this.nextActionId = 1;
@@ -573,6 +600,15 @@ class ZumaGame {
       this.chain = [];
       this.particles = [];
       this.splitState = null;
+      // Track 2 cleanup on level-select exit (双轨关卡返回选关界面时清理第二轨道数据)
+      this.chain2 = [];
+      this.chainHeadS2 = 0;
+      this.splitState2 = null;
+      this.chainIntro2 = null;
+      this.mergeSettle2 = null;
+      this.pathPoints2 = [];
+      this.totalPathLength2 = 0;
+      this.cachedTrackPath2 = null;
       this.pendingMatchChecks = [];
       this.pointer.active = false;
       showLevelSelect(this);
