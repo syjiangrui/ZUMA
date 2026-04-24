@@ -23,6 +23,7 @@ import {
   resolveMatchesFrom as resolveMatchesFromFn,
 } from './match.js';
 import {
+  getTrackState as getTrackStateFn,
   createChain as createChainFn,
   createChainBall as createChainBallFn,
   updateChain as updateChainFn,
@@ -345,42 +346,52 @@ class ZumaGame {
   }
 
   // --- Chain delegation wrappers ------------------------------------------
+  // All chain wrappers accept an optional trackIndex (default 0) so callers
+  // can target the second track in dual-track levels without changing
+  // call-sites that only use the primary track.
+
+  // Build a TrackState accessor object for the given track. Useful when
+  // external code needs to inspect or pass track-specific state.
+  getTrackState(trackIndex = 0) {
+    return getTrackStateFn(this, trackIndex);
+  }
 
   // Reset the chain itself to a packed line of balls. Round-scoped state such
   // as projectile, palettes and gameState is handled by resetRound().
-  createChain() {
-    createChainFn(this);
+  createChain(trackIndex = 0) {
+    createChainFn(this, trackIndex);
   }
 
   createChainBall(paletteIndex) {
     return createChainBallFn(this, paletteIndex);
   }
 
-  updateChain(dt) {
-    updateChainFn(this, dt);
+  updateChain(dt, trackIndex = 0) {
+    updateChainFn(this, dt, trackIndex);
   }
 
-  syncChainPositions() {
-    syncChainPositionsFn(this);
+  syncChainPositions(trackIndex = 0) {
+    syncChainPositionsFn(this, trackIndex);
   }
 
-  // There is only ever one gameplay gap in the prototype: the break created
-  // when a middle group disappears. Matching and chain logic must treat that
-  // seam as non-adjacent until the rear segment has physically caught up.
-  hasGapBetween(leftIndex, rightIndex) {
-    return hasGapBetweenFn(this, leftIndex, rightIndex);
+  // There is only ever one gameplay gap per track in the prototype: the break
+  // created when a middle group disappears. Matching and chain logic must
+  // treat that seam as non-adjacent until the rear segment has physically
+  // caught up.
+  hasGapBetween(leftIndex, rightIndex, trackIndex = 0) {
+    return hasGapBetweenFn(this, leftIndex, rightIndex, trackIndex);
   }
 
-  getSplitGap() {
-    return getSplitGapFn(this);
+  getSplitGap(trackIndex = 0) {
+    return getSplitGapFn(this, trackIndex);
   }
 
-  addImpact(index, amount) {
-    addImpactFn(this, index, amount);
+  addImpact(index, amount, trackIndex = 0) {
+    addImpactFn(this, index, amount, trackIndex);
   }
 
-  applyInsertSpacingWave(insertIndex) {
-    applyInsertSpacingWaveFn(this, insertIndex);
+  applyInsertSpacingWave(insertIndex, trackIndex = 0) {
+    applyInsertSpacingWaveFn(this, insertIndex, trackIndex);
   }
 
   // --- Projectile delegation wrappers -------------------------------------
@@ -454,6 +465,10 @@ class ZumaGame {
     // 2. Chain state advances and may consume delayed match checks.
     // 3. Projectile moves last so collisions are evaluated against the latest
     //    chain layout for this frame.
+    // Reset per-frame reached-goal flags before chain update. updateChain sets
+    // them if a chain's tail exits the track; updateRoundOutcome reads them.
+    this.track1ReachedGoal = false;
+    this.track2ReachedGoal = false;
     this.updateAim(dt);
     this.updateChain(dt);
     if (!this.isRoundPlaying()) {
@@ -484,6 +499,15 @@ class ZumaGame {
   // misreport the round result from stale intermediate state.
   updateRoundOutcome() {
     if (!this.isRoundPlaying()) {
+      return;
+    }
+
+    // Lose detection: chain.js no longer calls setGameState("lose") directly.
+    // Instead it sets per-track reached-goal flags each frame. For single-track
+    // levels, track1ReachedGoal alone triggers defeat. For dual-track levels,
+    // either track reaching the goal is a loss (any-track-loses policy).
+    if (this.track1ReachedGoal || this.track2ReachedGoal) {
+      this.setGameState("lose");
       return;
     }
 
