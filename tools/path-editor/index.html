@@ -75,6 +75,11 @@ body{background:#0e1218;color:#ddd;font-family:-apple-system,sans-serif;display:
     <button class="tool-btn danger" onclick="deleteCurve()">✕ 删除选中</button>
     <button class="tool-btn" onclick="clearAll()">清空</button>
   </div>
+  <div id="hud-overlay-bar" style="padding:4px 16px;border-bottom:1px solid #2a3444;font-size:11px">
+    <label style="display:flex;align-items:center;gap:6px;color:#8a9aaa;cursor:pointer">
+      <input type="checkbox" id="showHudOverlay" checked style="accent-color:#f0d57a"> 显示 HUD 遮挡
+    </label>
+  </div>
   <div id="waypoint-bar" style="display:none;padding:6px 16px;border-bottom:1px solid #2a3444;font-size:11px;color:#8a9aaa">
     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
       <button class="tool-btn" onclick="fitWaypoints()" title="按当前 waypoint 骨架一键拟合为二次贝塞尔，误差超限处自动加段">⟳ 一键拟合</button>
@@ -246,6 +251,7 @@ const WAYPOINT_INSERT_DISTANCE = 18;
 // ─── Editing mode state ─────────────────────────────────────────────
 let waypointMode = false;
 let brushMode = false;
+let showHudOverlay = true;
 let brushSamples = [];
 const BRUSH_SAMPLE_MIN_DIST = 6;
 const BRUSH_JOIN_DISTANCE = 18;
@@ -3625,6 +3631,10 @@ async function init() {
   resizeCanvas();
 }
 init();
+document.getElementById('showHudOverlay').addEventListener('change', (e) => {
+  showHudOverlay = e.target.checked;
+  render();
+});
 </script>
 </body>
 </html>
