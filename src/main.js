@@ -470,7 +470,11 @@ class ZumaGame {
     this.track1ReachedGoal = false;
     this.track2ReachedGoal = false;
     this.updateAim(dt);
-    this.updateChain(dt);
+    this.updateChain(dt, 0);
+    // 双轨关卡：同步更新第二条链
+    if (this.isDualTrack) {
+      this.updateChain(dt, 1);
+    }
     if (!this.isRoundPlaying()) {
       return;
     }
@@ -502,17 +506,20 @@ class ZumaGame {
       return;
     }
 
-    // Lose detection: chain.js no longer calls setGameState("lose") directly.
-    // Instead it sets per-track reached-goal flags each frame. For single-track
-    // levels, track1ReachedGoal alone triggers defeat. For dual-track levels,
-    // either track reaching the goal is a loss (any-track-loses policy).
-    if (this.track1ReachedGoal || this.track2ReachedGoal) {
+    // Lose detection: chain.js sets per-track reached-goal flags each frame.
+    // 单轨关卡：track1 到终点即判负
+    // 双轨关卡：两条链都到终点才判负（spec 设计：更宽容的模式）
+    if (this.track1ReachedGoal && (!this.isDualTrack || this.track2ReachedGoal)) {
       this.setGameState("lose");
+      this.screenShake = 1;
       return;
     }
 
+    // Win detection: 所有链清空 + 无在飞弹丸 + 无待处理消除
+    const chain1Empty = this.chain.length === 0;
+    const chain2Empty = !this.isDualTrack || this.chain2.length === 0;
     if (
-      this.chain.length === 0 &&
+      chain1Empty && chain2Empty &&
       !this.projectile &&
       this.pendingMatchChecks.length === 0
     ) {
@@ -609,6 +616,10 @@ class ZumaGame {
     this.pointer.y = this.shooter.y - 120;
 
     this.createChain();
+    // 双轨关卡：同时创建第二条链
+    if (this.isDualTrack) {
+      this.createChain(1);
+    }
     this.currentPaletteIndex = this.getRandomPaletteIndex();
     this.nextPaletteIndex = this.getRandomPaletteIndex();
   }
