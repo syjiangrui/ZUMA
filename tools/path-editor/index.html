@@ -2265,21 +2265,49 @@ cv.addEventListener('mousedown', e => {
     selectedCurve = -1;
     const wp = findWaypointHandle(g.x, g.y);
     if (wp) {
-      dragging = wp;
+      // Check for batch drag of multi-selected waypoints
+      if (selectedPoints.size > 1 && selectedPoints.has(getPointKey('waypoint', wp.index))) {
+        dragging = { type: 'multiDrag' };
+        const snapshots = new Map();
+        for (const key of selectedPoints) {
+          const pos = getPointPosition(key);
+          if (pos) snapshots.set(key, { x: pos.x, y: pos.y });
+        }
+        multiDragStart = { gx: g.x, gy: g.y, snapshots };
+      } else if (e.shiftKey) {
+        const key = getPointKey('waypoint', wp.index);
+        if (selectedPoints.has(key)) selectedPoints.delete(key);
+        else selectedPoints.add(key);
+        dragging = null;
+      } else {
+        clearSelection();
+        dragging = wp;
+      }
       selectedWaypoint = wp.index;
       updateWaypointMeta();
       render();
       return;
     }
 
+    // Shift+click on empty area in waypoint mode: start marquee instead of adding point
+    if (e.shiftKey) {
+      dragging = 'marquee';
+      marqueeShift = true;
+      marqueeRect = { x1: g.x, y1: g.y, x2: g.x, y2: g.y };
+      render();
+      return;
+    }
+
     const insertion = findWaypointInsertion(g.x, g.y);
     if (insertion) {
+      clearSelection();
       const index = insertWaypoint(insertion.insertIndex, insertion.point);
       dragging = { type: 'waypoint', index };
       render();
       return;
     }
 
+    clearSelection();
     const index = appendWaypointSmart(g);
     dragging = { type: 'waypoint', index };
     render();
@@ -2288,13 +2316,40 @@ cv.addEventListener('mousedown', e => {
 
   const handle = findHandle(g.x, g.y);
   if (handle) {
-    dragging = handle;
-    if (handle.type === 'curve') selectedCurve = handle.index;
-    if (handle.type !== 'curve') selectedCurve = -1;
-    selectedWaypoint = -1;
+    // Check if clicking a point that's part of a multi-selection for batch drag
+    if (selectedPoints.size > 1 && isHandleSelected(handle)) {
+      dragging = { type: 'multiDrag' };
+      const snapshots = new Map();
+      for (const key of selectedPoints) {
+        const pos = getPointPosition(key);
+        if (pos) snapshots.set(key, { x: pos.x, y: pos.y });
+      }
+      multiDragStart = { gx: g.x, gy: g.y, snapshots };
+    } else {
+      // Shift+click: toggle this point in/out of selection
+      if (e.shiftKey) {
+        const key = getPointKey(handle.type, handle.index, handle.point);
+        if (selectedPoints.has(key)) {
+          selectedPoints.delete(key);
+        } else {
+          selectedPoints.add(key);
+        }
+      } else {
+        // Normal click on a handle: clear multi-select, do normal single-point drag
+        clearSelection();
+        dragging = handle;
+      }
+      if (handle.type === 'curve') selectedCurve = handle.index;
+      if (handle.type !== 'curve') selectedCurve = -1;
+      selectedWaypoint = -1;
+    }
   } else {
+    // Clicked empty area: start marquee selection
     selectedCurve = -1;
     selectedWaypoint = -1;
+    dragging = 'marquee';
+    marqueeShift = e.shiftKey;
+    marqueeRect = { x1: g.x, y1: g.y, x2: g.x, y2: g.y };
   }
   buildCurveList();
   updateWaypointMeta();
@@ -2337,6 +2392,24 @@ cv.addEventListener('mousemove', e => {
       brushSamples.push({ x: g.x, y: g.y });
       render();
     }
+    return;
+  }
+
+  if (dragging === 'marquee') {
+    marqueeRect.x2 = g.x;
+    marqueeRect.y2 = g.y;
+    render();
+    return;
+  }
+
+  if (dragging && dragging.type === 'multiDrag' && multiDragStart) {
+    const dx = g.x - multiDragStart.gx;
+    const dy = g.y - multiDragStart.gy;
+    for (const [key, snap] of multiDragStart.snapshots) {
+      setPointPosition(key, snap.x + dx, snap.y + dy);
+    }
+    previewDirty = true;
+    render();
     return;
   }
 
@@ -2423,6 +2496,25 @@ cv.addEventListener('mouseup', () => {
   if (dragging && dragging.type === 'penDragHandle') {
     finishPenHandleDrag();
   }
+  if (dragging === 'marquee') {
+    if (marqueeRect) {
+      const w = Math.abs(marqueeRect.x2 - marqueeRect.x1);
+      const h = Math.abs(marqueeRect.y2 - marqueeRect.y1);
+      if (w > 4 || h > 4) {
+        selectPointsInRect(marqueeRect, marqueeShift);
+      } else if (!marqueeShift) {
+        clearSelection();
+      }
+    }
+    marqueeRect = null;
+  }
+  if (dragging && dragging.type === 'multiDrag') {
+    multiDragStart = null;
+    previewDirty = true;
+    clearFitStats(LEVELS[currentLevel]);
+    buildCurveList();
+    updateWaypointMeta();
+  }
   dragging = null;
   updateCanvasCursor();
 });
@@ -2432,6 +2524,12 @@ cv.addEventListener('mouseleave', () => {
   }
   if (dragging && dragging.type === 'penDragHandle') {
     finishPenHandleDrag();
+  }
+  if (dragging === 'marquee') {
+    marqueeRect = null;
+  }
+  if (dragging && dragging.type === 'multiDrag') {
+    multiDragStart = null;
   }
   dragging = null;
   if (penMode) penPreviewMouse = null;
