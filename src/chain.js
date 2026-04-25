@@ -198,6 +198,12 @@ export function updateChain(game, dt, trackIndex = 0) {
   // track levels only track1ReachedGoal matters; in dual-track levels the
   // main loop may require BOTH tracks to reach the goal before declaring a
   // loss (or use any-track-loses semantics — that policy lives in main.js).
+  //
+  // NOTE: screenShake is NOT set here. In dual-track levels, one chain
+  // reaching the goal does not mean the game is lost yet — setting shake
+  // here would trigger every frame while waiting for the second chain,
+  // causing continuous vibration. Shake is set once in main.js when
+  // setGameState("lose") is actually called.
   const tailS = ts.chain[ts.chain.length - 1].s;
   if (tailS > ts.totalPathLength + EXIT_GAP) {
     if (trackIndex === 0) {
@@ -205,7 +211,6 @@ export function updateChain(game, dt, trackIndex = 0) {
     } else {
       game.track2ReachedGoal = true;
     }
-    game.screenShake = 1; // trigger screen shake on defeat
   }
 }
 
